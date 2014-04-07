@@ -1,15 +1,17 @@
 __author__ = 'Rob Horner (robert@horners.org)'
 
 import xml.etree.ElementTree as ET
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 import time
 import inspect
 import json
 
 import requests
 LOGIN_TIMEOUT = 5.0
-REQUEST_TIMEOUT = 10.0
+REQUEST_TIMEOUT = 30.0
 
+
+##### Create XML template strings
 '''
 Sample:
 <configConfMo cookie="%s">
@@ -22,7 +24,6 @@ Sample:
 </configConfMo>
 '''
 
-##### Create XML template strings
 configConfMo_prepend_string = '''<configConfMo cookie="%s" dn="sys/rack-unit-1/bios/bios-settings" inHierarchical="true">
   <inConfig>
     <biosSettings dn="sys/rack-unit-1/bios/bios-settings">\n'''
@@ -31,6 +32,8 @@ configConfMo_append_string = '''    </biosSettings>
   </inConfig>
 </configConfMo>
 '''
+
+
 #########
 #### Command String dictionary ####
 command_strings = {
@@ -51,13 +54,22 @@ command_strings = {
 # timeit decorator for, you know, timing testing
 def timeit(method):
     def timed(*args, **kw):
-        ts = time()
+        tstart = time()
         result = method(*args, **kw)
-        te = time()
+        tend = time()
         print '%r (%r, %r) %2.2f sec' % \
-              (method.__name__, args, kw, te-ts)
+              (method.__name__, args, kw, tend-tstart)
         return result
     return timed
+
+class PostException(Exception):
+    pass
+
+class TimeoutException(Exception):
+    pass
+
+class LoginException(Exception):
+    pass
 
 class UcsServer():
     def __init__(self, ipaddress, username, password):
@@ -80,6 +92,7 @@ class UcsServer():
         self.inventory['pci'] = {}
         self.inventory['adaptor'] = {}
         self.inventory['cimc'] = {}
+        self.inventory['users'] = {}
 
     def login(self):
         '''
@@ -257,6 +270,7 @@ class UcsServer():
         else:
             print 'No drive inventory found! Please run "get_drive_inventory() on the server instance first.'
 
+    #@timeit
     def get_interface_inventory(self):
         '''
         Get network interface inventory with three calls:
@@ -284,7 +298,7 @@ class UcsServer():
 
             # query adaptorExtEthIf classId to find all physical network interfaces
             command_string = '<configResolveClass cookie="%s" inHierarchical="false" classId="%s"/>' %\
-                             (myserver.session_cookie, 'adaptorExtEthIf')
+                             (self.session_cookie, 'adaptorExtEthIf')
             response_element = post_request(self.ipaddress, command_string)
             out_configs = response_element.find('outConfigs')
             for config in out_configs.getchildren():
@@ -293,7 +307,7 @@ class UcsServer():
 
             # query adaptorHostEthIf classId to find all vNIC interfaces
             command_string = '<configResolveClass cookie="%s" inHierarchical="false" classId="%s"/>' %\
-                             (myserver.session_cookie, 'adaptorHostEthIf')
+                             (self.session_cookie, 'adaptorHostEthIf')
             response_element = post_request(self.ipaddress, command_string)
             out_configs = response_element.find('outConfigs')
             for config in out_configs.getchildren():
@@ -320,7 +334,7 @@ class UcsServer():
                     for vnic in adaptorHostEthIf_list:
                         # If this vnic is on the current adaptor and is also on the current port,
                         #  append it to the port's vnic list
-                        if (adaptor['dn'].split('/')[2] == vnic['dn'].split('/')[2]) and (vnic['uplinkPort'] == port['portId']):
+                        if (adaptor['dn'].split('/')[2] == vnic['dn'].split('/')[2]) and (vnic.get('uplinkPort') == port['portId']):
                             port['vnic'].append(vnic)
 
             out_list.append(adaptor)
@@ -386,6 +400,49 @@ class UcsServer():
             print 'post_request returned error:', e
             return False
 
+    def get_users(self):
+        user_list = []
+        command_string = '<configResolveClass cookie="%s" inHierarchical="false" classId="aaaUser"/>' % self.session_cookie
+        try:
+            response_element = post_request(self.ipaddress, command_string)
+            for user in response_element.findall('*/aaaUser'):
+                if user.attrib['name'] is not '':
+                    user_list.append(user.attrib)
+            self.inventory['users'] = user_list
+            return True
+        except PostException as e:
+            print 'pycimc.get_fw_versions:', e
+            return False
+
+    def set_password(self, userid, password):
+        '''<configConfMo cookie="<cookie>" inHierarchical="false" dn="sys/user-ext/user-3">
+                <inConfig>
+                    <aaaUser id="3" pwd="<new_password>" />
+                </inConfig>
+            </configConfMo>'''
+        if self.inventory.get('users') is None:
+            self.get_users()
+        # Make sure we have the requested user
+        try:
+            (id, dn) = next((user['id'],user['dn']) for user in myserver.inventory['users'] if user['name'] == userid)
+            print 'Found user "%s" with ID %s (%s)' % (userid, id, dn)
+            # return True
+        except StopIteration:
+            print 'Cannot find user', userid
+            return False
+
+        # ready to go. Change the user password
+        command_string = '<configConfMo cookie="%s" inHierarchical="false" dn="%s">\
+            <inConfig> <aaaUser id="%s" pwd="%s" /> </inConfig> </configConfMo>' % (self.session_cookie, dn, id, password)
+        try:
+            response_element = post_request(self.ipaddress, command_string)
+            print 'Successfully changed password for user "%s" to "%s"' % (userid, password)
+            return True
+        except PostException as e:
+            print 'pycimc.set_password:', e
+            return False
+
+
     def get_fw_versions(self):
         '''
         Query the firmwareRunning class to get all FW versions on the server
@@ -428,34 +485,23 @@ def post_request(server, command_string, timeout=REQUEST_TIMEOUT):
     except Exception as e:
         raise PostException('pycimc.post_request() raised Exception:', e)
 
-def dummy():
-    for item,command in command_strings.items():
-    start = time.time()
-    full_command = command % myserver.session_cookie
-    response = post_request(myserver.ipaddress, full_command)
-    print item
-    tmp = response.find('outConfigs').getchildren()
-    for item in tmp:
-        print item.tag, item.attrib
-    print (time.time() - start)
-    print '\n'
-
-class PostException(Exception):
-    pass
-
-class TimeoutException(Exception):
-    pass
-
-class LoginException(Exception):
-    pass
-
 
 if __name__ == "__main__":
-    IPADDR = '69.134.205.61'
+    IPADDR = '192.168.200.100'
     USERNAME = 'admin'
     PASSWORD = 'password'
 
     myserver = UcsServer(IPADDR,USERNAME,PASSWORD)
+
+    if 1:
+        if myserver.login():
+            if len(myserver.inventory['users'].keys()) == 0:
+                print '== user list empty - getting user list =='
+                myserver.get_users()
+                print myserver.inventory['users']
+            print '== setting new password =='
+            myserver.set_password('admin','cisco')
+            myserver.logout()
 
     if 0:
         if myserver.login():
@@ -463,8 +509,8 @@ if __name__ == "__main__":
 
             print '== chassis info =='
             myserver.get_chassis_info()
-            print '== CIMC info =='
-            myserver.get_cimc_info()
+            #print '== CIMC info =='
+            #myserver.get_cimc_info()
             print '== Boot order =='
             myserver.get_boot_order()
             print '== Drive inventory =='
@@ -476,11 +522,11 @@ if __name__ == "__main__":
             print '== PCI inventory =='
             myserver.get_pci_inventory()
             print '== Interface inventory =='
-            myserver.get_interface_inventory
+            myserver.get_interface_inventory()
 
             myserver.logout()
 
-    if 1:
+    if 0:
         if myserver.login():
             for item,command in command_strings.items():
                 start = time.time()
