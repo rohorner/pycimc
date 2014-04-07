@@ -420,13 +420,11 @@ class UcsServer():
                     <aaaUser id="3" pwd="<new_password>" />
                 </inConfig>
             </configConfMo>'''
-        if self.inventory.get('users') is None:
+        if len(self.inventory['users']) == 0:
             self.get_users()
         # Make sure we have the requested user
         try:
-            (id, dn) = next((user['id'],user['dn']) for user in myserver.inventory['users'] if user['name'] == userid)
-            print 'Found user "%s" with ID %s (%s)' % (userid, id, dn)
-            # return True
+            (id, dn) = next((user['id'],user['dn']) for user in self.inventory['users'] if user['name'] == userid)
         except StopIteration:
             print 'Cannot find user', userid
             return False
@@ -436,7 +434,6 @@ class UcsServer():
             <inConfig> <aaaUser id="%s" pwd="%s" /> </inConfig> </configConfMo>' % (self.session_cookie, dn, id, password)
         try:
             response_element = post_request(self.ipaddress, command_string)
-            print 'Successfully changed password for user "%s" to "%s"' % (userid, password)
             return True
         except PostException as e:
             print 'pycimc.set_password:', e
