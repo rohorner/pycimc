@@ -62,6 +62,9 @@ def timeit(method):
         return result
     return timed
 
+class ResponseException(Exception):
+    pass
+
 class PostException(Exception):
     pass
 
@@ -108,23 +111,21 @@ class UcsServer():
         command_string = "<aaaLogin inName='%s' inPassword='%s'></aaaLogin>" % (self.username, self.password)
         try:
             response = post_request(self.ipaddress, command_string, timeout=LOGIN_TIMEOUT)
-            if 'errorCode' in response.attrib:
-                self.status_message = "Login Error: Server returned status code %s: %s" % (response.attrib['errorCode'], response.attrib['errorDescr'])
-                raise Exception
-            else:
-                if 'outCookie' in response.attrib:
-                    self.session_cookie = response.attrib['outCookie']
-                if 'outRefreshPeriod' in response.attrib:
-                    self.session_refresh_period = response.attrib['outRefreshPeriod']
-                if 'outVersion' in response.attrib:
-                    self.version = response.attrib['outVersion']
-                return True
-            return response
+            if 'outCookie' in response.attrib:
+                self.session_cookie = response.attrib['outCookie']
+            if 'outRefreshPeriod' in response.attrib:
+                self.session_refresh_period = response.attrib['outRefreshPeriod']
+            if 'outVersion' in response.attrib:
+                self.version = response.attrib['outVersion']
+            return True
+        except ResponseException as e:
+            print '%s: pycimc.login ResponseException: %s' % (self.ipaddress, e)
+            return False
         except TimeoutException as e:
             print 'login to %s timed out' % self.ipaddress
             return False
         except PostException as e:
-            print 'pycimc.login: post_request returned error:', e
+            print '%s: pycimc.login PostException: %s' % (self.ipaddress, e)
             return False
 
     def logout(self):
@@ -471,16 +472,13 @@ def post_request(server, command_string, timeout=REQUEST_TIMEOUT):
         # Check if the response has an 'errorCode' key if something went wrong
         # if so, then print the error message and raise an exception
         if 'errorCode' in response.keys():
-            print 'command:', command_string
-            print 'response.attrib:', response.attrib
-            raise SyntaxError("'%s': '%s'" % (response.attrib['errorCode'], response.attrib['errorDescr']))
+            # print 'command:', command_string
+            # print 'response.attrib:', response.attrib
+            raise ResponseException("'%s': '%s'" % (response.attrib['errorCode'], response.attrib['errorDescr']))
         else:
             return response
     except requests.exceptions.Timeout:
-        print 'pycimc.post_request() to %s timed out. I was called by function "%s"' % (server, inspect.stack()[1][3])
         raise TimeoutException('pycimc.post_request() to %s timed out.' % server)
-    except Exception as e:
-        raise PostException('pycimc.post_request() raised Exception:', e)
 
 
 if __name__ == "__main__":

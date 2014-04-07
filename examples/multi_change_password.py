@@ -33,7 +33,9 @@ class ThreadLogin(Thread):
                     if server.set_password(USERNAME, NEW_PASSWORD):
                         with self.lock:
                             print "%s: Changed user '%s' password to '%s'" % (host, USERNAME, NEW_PASSWORD)
-
+                    else:
+                        with self.lock:
+                            print "%s: Error changing password" % host
                     server.logout()
                 #else:
                 #    with self.lock:
