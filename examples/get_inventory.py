@@ -4,21 +4,20 @@ from pycimc import *
 import config
 from pprint import pprint
 
-__author__ = 'Rob Horner (robert@horners.org)'
+ADDRESS = '69.134.205.44'
+USERNAME = 'admin'
+PASSWORD = 'PalmWine4TWC'
 
-for address in config.SERVERS:
-    server = UcsServer(address, config.USERNAME, config.PASSWORD)
-    if server.login():
-        print 'server:', address
-        server.get_interface_inventory()
-        # pprint(server.inventory['adaptor'])
+
+with UcsServer(ADDRESS, USERNAME, PASSWORD) as server:
+    out_string = server.ipaddress
+    if server.get_interface_inventory():
         for int in server.inventory['adaptor']:
-            out_string = 'SLOT-'+int['pciSlot']
+            out_string += ',SLOT-'+int['pciSlot']
             for port in int['port']:
                 out_string += ',port-'+str(port['portId'])+','+port['adminSpeed']+','+port['linkState']
                 for vnic in port['vnic']:
                     out_string += ','+str(vnic['name'])+','+str(vnic['mac'])
             print out_string
-        server.logout()
     else:
-        continue
+        print 'get_interface_inventory() returned False'
