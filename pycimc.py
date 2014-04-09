@@ -4,12 +4,14 @@ import xml.etree.ElementTree as ET
 from collections import namedtuple, defaultdict
 import time
 import inspect
-import json
+import pprint
 
 import requests
+
 LOGIN_TIMEOUT = 5.0
 REQUEST_TIMEOUT = 30.0
 
+Version = namedtuple('Version',['major','minor'])   # Class variable - data shared
 
 ##### Create XML template strings
 '''
@@ -41,13 +43,13 @@ command_strings = {
     'cimc':          '<configResolveClass    cookie="%s" inHierarchical="false" classId="mgmtIf"/>',
     'boot_order':    '<configResolveChildren cookie="%s" inHierarchical="false"    inDn="sys/rack-unit-1/boot-policy"/>',
     'local_disk':    '<configResolveClass    cookie="%s" inHierarchical="false" classId="storageLocalDisk"/>',
-    #'virtual_drive': '<configResolveClass    cookie="%s" inHierarchical="false" classId="storageVirtualDrive"/>',
-    #'adaptors':      '<configResolveClass    cookie="%s" inHierarchical="false" classId="adaptorUnit"/>',
-    #'ports':         '<configResolveClass    cookie="%s" inHierarchical="false" classId="adaptorExtEthIf"/>',
-    #'vnics':         '<configResolveClass    cookie="%s" inHierarchical="false" classId="adaptorHostEthIf"/>',
-    #'pci':           '<configResolveClass    cookie="%s" inHierarchical="false" classId="pciEquipSlot"/>',
-    #'bios':          '<configResolveClass    cookie="%s" inHierarchical="true"  classId="biosSettings"/>',
-    #'fw':            '<configResolveClass    cookie="%s" inHierarchical="false" classId="firmwareRunning"/>',
+    'virtual_drive': '<configResolveClass    cookie="%s" inHierarchical="false" classId="storageVirtualDrive"/>',
+    'adaptors':      '<configResolveClass    cookie="%s" inHierarchical="false" classId="adaptorUnit"/>',
+    'ports':         '<configResolveClass    cookie="%s" inHierarchical="false" classId="adaptorExtEthIf"/>',
+    'vnics':         '<configResolveClass    cookie="%s" inHierarchical="false" classId="adaptorHostEthIf"/>',
+    'pci':           '<configResolveClass    cookie="%s" inHierarchical="false" classId="pciEquipSlot"/>',
+    'bios':          '<configResolveClass    cookie="%s" inHierarchical="true"  classId="biosSettings"/>',
+    'fw':            '<configResolveClass    cookie="%s" inHierarchical="false" classId="firmwareRunning"/>',
 }
 ####
 
@@ -74,7 +76,16 @@ class TimeoutException(Exception):
 class LoginException(Exception):
     pass
 
+class InventoryDict(defaultdict):
+
+    # pprint doesn't know how to handle defaultdict - it wants a dict __repr__.
+    # Let's override its __repr__ method so that it prints out like a regular dict
+    __repr__ = dict.__repr__
+
 class UcsServer():
+
+    version = Version(0,2)
+
     def __init__(self, ipaddress, username, password):
         self.session_cookie = None
         self.session_refresh_period = None
@@ -85,17 +96,28 @@ class UcsServer():
         self.serial_no = 'not queried'
         self.model = 'not queried'
         self.total_memory = 0
-        self.inventory = {}
-        self.inventory['fw'] = {}
-        self.inventory['bios'] = {}
-        self.inventory['drives'] = {}
-        self.inventory['boot_order'] = {}
-        self.inventory['chassis'] = {}
-        self.inventory['eth'] = {}
-        self.inventory['pci'] = {}
-        self.inventory['adaptor'] = {}
-        self.inventory['cimc'] = {}
-        self.inventory['users'] = {}
+        self.inventory = InventoryDict()
+        # self.inventory = {}
+        # self.inventory['fw'] = {}
+        # self.inventory['bios'] = {}
+        # self.inventory['drives'] = {}
+        # self.inventory['boot_order'] = {}
+        # self.inventory['chassis'] = {}
+        # self.inventory['eth'] = {}
+        # self.inventory['pci'] = {}
+        # self.inventory['adaptor'] = {}
+        # self.inventory['cimc'] = {}
+        # self.inventory['users'] = {}
+
+    # Context Manager
+    def __enter__(self):
+        self.login()
+        return self
+
+    def __exit__(self, exctype, excinst, exctb):
+        if exctype is not None:
+            print 'The exctype is', exctype
+        self.logout()
 
     def login(self):
         '''
@@ -129,8 +151,9 @@ class UcsServer():
             return False
 
     def logout(self):
-        #print '== logging out of <%s> ==' % self.ipaddress
-        #print 'logout session cookie:', self.session_cookie
+        '''
+        Log out of the server instance. Invalidates the current session cookie in self.session_cookie
+        '''
         command_string = "<aaaLogout cookie='%s' inCookie='%s'></aaaLogout>" % (self.session_cookie, self.session_cookie)
         auth_response = post_request(self.ipaddress, command_string)
 
@@ -158,30 +181,13 @@ class UcsServer():
         else:
             print 'reboot() must be called with "force=True" to reboot the server'
 
-    def refresh(self):
-        '''
-        XML Query:
-            <aaaRefresh cookie="<real_cookie>" inCookie="<real_cookie>" inName='admin' inPassword='password'> </aaaRefresh>
-        '''
-        command_string = "<aaaRefresh cookie='%s' inCookie='%s' inName='%s' inPassword='%s'></aaaRefresh>" %\
-                         (self.session_cookie, self.session_cookie, self.username, self.password)
-        try:
-            response_element = post_request(self.ipaddress, command_string)
-            return True
-        except SyntaxError as e:
-            print 'refresh() post_request returned error:', e
-            return False
-
-    def get_all_info(self):
-        try:
-            command_string = '<configResolveChildren cookie="%s" inHierarchical="true" inDn="sys/rack-unit-1"/>' % self.session_cookie
-            response_element = post_request(self.ipaddress, command_string)
-            return response_element
-        except PostException as e:
-            print 'pycimc.get_chassis_info: post_request returned error:', e
-            return False
+    def refresh_cookie(self):
+        pass
 
     def get_chassis_info(self):
+        '''
+        Get the top-level chassis info and record useful info like serial number, model, memory, etc, in server.inventory['chassis'] sub-dictionary
+        '''
         chassis_dict = {}
         try:
             command_string = '<configResolveClass cookie="%s" inHierarchical="false" classId="computeRackUnit"/>' % self.session_cookie
@@ -201,12 +207,10 @@ class UcsServer():
     def get_cimc_info(self):
         cimc_dict = {}
         try:
-            command_string = '<configResolveChildren cookie="%s" inHierarchical="true" inDn="sys/rack-unit-1/mgmt/if-1"/>' % self.session_cookie
+            command_string = '<configResolveChildren cookie="%s" inHierarchical="true" inDn="sys/rack-unit-1/mgmt"/>' % self.session_cookie
             response_element = post_request(self.ipaddress, command_string)
             out_configs = response_element.find('outConfigs')
-            for i in out_configs.getchildren():
-                cimc_dict[i.attrib['order']] = i.attrib['type']
-            self.inventory['cimc'] = cimc_dict
+            self.inventory['cimc'] = out_configs.find('mgmtIf').attrib
             return True
         except PostException as e:
             print 'pycimc.get_cimc_info: post_request returned error:', e
@@ -341,6 +345,7 @@ class UcsServer():
             out_list.append(adaptor)
 
         self.inventory['adaptor'] = out_list
+        return True
 
     def get_pci_inventory(self):
         '''
@@ -358,6 +363,7 @@ class UcsServer():
             for config in out_configs.getchildren():
                 pciEquipSlot_list.append(config.attrib)
             self.inventory['pci'] = pciEquipSlot_list
+            return True
         except PostException as e:
             print 'pycimc.get_eth_settings: post_request returned error:', e
             return False
@@ -482,13 +488,12 @@ def post_request(server, command_string, timeout=REQUEST_TIMEOUT):
 
 
 if __name__ == "__main__":
-    IPADDR = '192.168.200.100'
+    IPADDR = '69.134.205.61'
     USERNAME = 'admin'
-    PASSWORD = 'password'
+    PASSWORD = 'PalmWine4TWC'
 
-    myserver = UcsServer(IPADDR,USERNAME,PASSWORD)
 
-    if 1:
+    if 0:
         if myserver.login():
             if len(myserver.inventory['users'].keys()) == 0:
                 print '== user list empty - getting user list =='
@@ -498,14 +503,12 @@ if __name__ == "__main__":
             myserver.set_password('admin','cisco')
             myserver.logout()
 
-    if 0:
-        if myserver.login():
-            #result = myserver.get_all_info()
-
+    if 1:
+        with UcsServer(IPADDR,USERNAME,PASSWORD) as myserver:
             print '== chassis info =='
             myserver.get_chassis_info()
-            #print '== CIMC info =='
-            #myserver.get_cimc_info()
+            print '== CIMC info =='
+            myserver.get_cimc_info()
             print '== Boot order =='
             myserver.get_boot_order()
             print '== Drive inventory =='
@@ -519,7 +522,6 @@ if __name__ == "__main__":
             print '== Interface inventory =='
             myserver.get_interface_inventory()
 
-            myserver.logout()
 
     if 0:
         if myserver.login():
