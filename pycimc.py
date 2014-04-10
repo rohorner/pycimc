@@ -9,7 +9,7 @@ import pprint
 import requests
 
 LOGIN_TIMEOUT = 5.0
-REQUEST_TIMEOUT = 30.0
+REQUEST_TIMEOUT = 10.0
 
 Version = namedtuple('Version',['major','minor'])   # Class variable - data shared
 
@@ -56,9 +56,9 @@ command_strings = {
 # timeit decorator for, you know, timing testing
 def timeit(method):
     def timed(*args, **kw):
-        tstart = time()
+        tstart = time.time()
         result = method(*args, **kw)
-        tend = time()
+        tend = time.time()
         print '%r (%r, %r) %2.2f sec' % \
               (method.__name__, args, kw, tend-tstart)
         return result
@@ -74,6 +74,9 @@ class TimeoutException(Exception):
     pass
 
 class LoginException(Exception):
+    pass
+
+class SSLError(Exception):
     pass
 
 class InventoryDict(defaultdict):
@@ -97,26 +100,17 @@ class UcsServer():
         self.model = 'not queried'
         self.total_memory = 0
         self.inventory = InventoryDict()
-        # self.inventory = {}
-        # self.inventory['fw'] = {}
-        # self.inventory['bios'] = {}
-        # self.inventory['drives'] = {}
-        # self.inventory['boot_order'] = {}
-        # self.inventory['chassis'] = {}
-        # self.inventory['eth'] = {}
-        # self.inventory['pci'] = {}
-        # self.inventory['adaptor'] = {}
-        # self.inventory['cimc'] = {}
-        # self.inventory['users'] = {}
 
     # Context Manager
     def __enter__(self):
-        self.login()
-        return self
+        if self.login():
+            return self
 
     def __exit__(self, exctype, excinst, exctb):
         if exctype is not None:
-            print 'The exctype is', exctype
+            print '%s' % excinst.args[0]
+            return True
+        # print 'Returning None which is a false value, meaning, no execeptions were handled'
         self.logout()
 
     def login(self):
@@ -144,7 +138,7 @@ class UcsServer():
             print '%s: pycimc.login ResponseException: %s' % (self.ipaddress, e)
             return False
         except TimeoutException as e:
-            print 'login to %s timed out' % self.ipaddress
+            print '%s: pycimc.login TimeoutException: %s' % (self.ipaddress, e)
             return False
         except PostException as e:
             print '%s: pycimc.login PostException: %s' % (self.ipaddress, e)
@@ -163,23 +157,27 @@ class UcsServer():
         else:
             return True
 
-    def reboot(self, force=False):
+    def set_power_state(self, power_state, force=False):
         '''
-        Immediately reboot the server. Other power options from the XML Schema are "up", "down", "soft-shut-down",
-        "cycle-immediate", "hard-reset-immediate", bmc-reset-immediate", "bmc-reset-default", "cmos-reset-immediate",
-        and "diagnostic-interrupt"
+        Change the power state of the server.
+
+        power_state options from the XML Schema are
+                "up", "down", "soft-shut-down", "cycle-immediate",
+                "hard-reset-immediate", bmc-reset-immediate",
+                "bmc-reset-default", "cmos-reset-immediate",
+                "diagnostic-interrupt"
         '''
         if force:
-            print 'Rebooting server %s' % self.ipaddress
             command_string = '''<configConfMo cookie="%s" dn="sys/rack-unit-1" inHierarchical="false">\
             <inConfig>\
-            <computeRackUnit dn="sys/rack-unit-1" adminPower="cycle-immediate"></computeRackUnit>
+            <computeRackUnit dn="sys/rack-unit-1" adminPower="%s"></computeRackUnit>
             </inConfig>\
-            </configConfMo>''' % self.session_cookie
+            </configConfMo>''' % (self.session_cookie, power_state)
             response_element = post_request(self.ipaddress, command_string)
-            return response_element
+            return True
         else:
-            print 'reboot() must be called with "force=True" to reboot the server'
+            print 'power() must be called with "force=True" to change the power status of the server'
+            return False
 
     def refresh_cookie(self):
         pass
@@ -199,6 +197,7 @@ class UcsServer():
             self.model = self.inventory['chassis']['model']
             self.total_memory = self.inventory['chassis']['totalMemory']
             self.name = self.inventory['chassis']['name']
+            self.operPower = self.inventory['chassis']['operPower']
             return True
         except PostException as e:
             print 'pycimc.get_chassis_info: post_request returned error:', e
@@ -211,13 +210,13 @@ class UcsServer():
             response_element = post_request(self.ipaddress, command_string)
             out_configs = response_element.find('outConfigs')
             self.inventory['cimc'] = out_configs.find('mgmtIf').attrib
-            return True
         except PostException as e:
             print 'pycimc.get_cimc_info: post_request returned error:', e
-            return False
         except TimeoutException as e:
             print 'pycimc.get_cimc_info:', e
-            return False
+        else:
+            return True
+        return False
 
     def get_boot_order(self):
         bootorder_dict = {}
@@ -446,7 +445,6 @@ class UcsServer():
             print 'pycimc.set_password:', e
             return False
 
-
     def get_fw_versions(self):
         '''
         Query the firmwareRunning class to get all FW versions on the server
@@ -484,13 +482,15 @@ def post_request(server, command_string, timeout=REQUEST_TIMEOUT):
         else:
             return response
     except requests.exceptions.Timeout:
-        raise TimeoutException('pycimc.post_request() to %s timed out.' % server)
+        raise TimeoutException('post_request(): Timeout error to %s.' % server)
+    except requests.exceptions.SSLError:
+        raise SSLError('post_request(): SSL connection error to %s.' % server)
 
 
 if __name__ == "__main__":
-    IPADDR = '69.134.205.61'
+    IPADDR = '172.29.85.36'
     USERNAME = 'admin'
-    PASSWORD = 'PalmWine4TWC'
+    PASSWORD = 'password'
 
 
     if 0:
