@@ -36,7 +36,7 @@ class InventoryDict(defaultdict):
 
 class UcsServer():
 
-    version = Version(0,3)
+    version = Version(0,4)
 
     def __init__(self, ipaddress, username, password):
         self.session_cookie = None
