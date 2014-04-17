@@ -4,54 +4,17 @@ import xml.etree.ElementTree as ET
 from collections import namedtuple, defaultdict
 import time
 import inspect
-import pprint
-
+from pprint import pprint
 import requests
+import logging
+from exception_mapper import *
+
 
 LOGIN_TIMEOUT = 5.0
 REQUEST_TIMEOUT = 10.0
 
 Version = namedtuple('Version',['major','minor'])   # Class variable - data shared
 
-##### Create XML template strings
-'''
-Sample:
-<configConfMo cookie="%s">
-    <inConfig>
-        <biosVfDemandScrub
-            dn="sys/rack-unit-1/bios/bios-settings/Demand-Scrub-Param"
-            vpDemandScrub="disabled">
-        </biosVfDemandScrub>
-    </inConfig>
-</configConfMo>
-'''
-
-configConfMo_prepend_string = '''<configConfMo cookie="%s" dn="sys/rack-unit-1/bios/bios-settings" inHierarchical="true">
-  <inConfig>
-    <biosSettings dn="sys/rack-unit-1/bios/bios-settings">\n'''
-configConfMo_template = '      <{item.tag} rn="{item.rn}" {item.setting}></{item.tag}>\n'
-configConfMo_append_string = '''    </biosSettings>
-  </inConfig>
-</configConfMo>
-'''
-
-
-#########
-#### Command String dictionary ####
-command_strings = {
-    'chassis':       '<configResolveClass    cookie="%s" inHierarchical="false" classId="computeRackUnit"/>',
-    'cimc':          '<configResolveClass    cookie="%s" inHierarchical="false" classId="mgmtIf"/>',
-    'boot_order':    '<configResolveChildren cookie="%s" inHierarchical="false"    inDn="sys/rack-unit-1/boot-policy"/>',
-    'local_disk':    '<configResolveClass    cookie="%s" inHierarchical="false" classId="storageLocalDisk"/>',
-    'virtual_drive': '<configResolveClass    cookie="%s" inHierarchical="false" classId="storageVirtualDrive"/>',
-    'adaptors':      '<configResolveClass    cookie="%s" inHierarchical="false" classId="adaptorUnit"/>',
-    'ports':         '<configResolveClass    cookie="%s" inHierarchical="false" classId="adaptorExtEthIf"/>',
-    'vnics':         '<configResolveClass    cookie="%s" inHierarchical="false" classId="adaptorHostEthIf"/>',
-    'pci':           '<configResolveClass    cookie="%s" inHierarchical="false" classId="pciEquipSlot"/>',
-    'bios':          '<configResolveClass    cookie="%s" inHierarchical="true"  classId="biosSettings"/>',
-    'fw':            '<configResolveClass    cookie="%s" inHierarchical="false" classId="firmwareRunning"/>',
-}
-####
 
 # timeit decorator for, you know, timing testing
 def timeit(method):
@@ -59,25 +22,11 @@ def timeit(method):
         tstart = time.time()
         result = method(*args, **kw)
         tend = time.time()
-        print '%r (%r, %r) %2.2f sec' % \
+        print '==> %r (%r, %r) %2.2f sec' % \
               (method.__name__, args, kw, tend-tstart)
         return result
     return timed
 
-class ResponseException(Exception):
-    pass
-
-class PostException(Exception):
-    pass
-
-class TimeoutException(Exception):
-    pass
-
-class LoginException(Exception):
-    pass
-
-class SSLError(Exception):
-    pass
 
 class InventoryDict(defaultdict):
 
@@ -87,7 +36,7 @@ class InventoryDict(defaultdict):
 
 class UcsServer():
 
-    version = Version(0,2)
+    version = Version(0,3)
 
     def __init__(self, ipaddress, username, password):
         self.session_cookie = None
@@ -106,13 +55,15 @@ class UcsServer():
         if self.login():
             return self
 
-    def __exit__(self, exctype, excinst, exctb):
-        if exctype is not None:
-            print '%s' % excinst.args[0]
+    def __exit__(self, exc_type, exc_inst, exc_tb):
+        if exc_type is not None:
+            print '%s' % exc_inst.args[0]
+            # print '%s' % exc_tb.__dict__
             return True
         # print 'Returning None which is a false value, meaning, no execeptions were handled'
         self.logout()
 
+    # @timeit
     def login(self):
         '''
         Log in to the CIMC using the instance's ipaddress, username, and password configured during init()
@@ -126,24 +77,19 @@ class UcsServer():
         '''
         command_string = "<aaaLogin inName='%s' inPassword='%s'></aaaLogin>" % (self.username, self.password)
         try:
-            response = post_request(self.ipaddress, command_string, timeout=LOGIN_TIMEOUT)
-            if 'outCookie' in response.attrib:
-                self.session_cookie = response.attrib['outCookie']
-            if 'outRefreshPeriod' in response.attrib:
-                self.session_refresh_period = response.attrib['outRefreshPeriod']
-            if 'outVersion' in response.attrib:
-                self.version = response.attrib['outVersion']
-            return True
-        except ResponseException as e:
-            print '%s: pycimc.login ResponseException: %s' % (self.ipaddress, e)
-            return False
-        except TimeoutException as e:
-            print '%s: pycimc.login TimeoutException: %s' % (self.ipaddress, e)
-            return False
-        except PostException as e:
-            print '%s: pycimc.login PostException: %s' % (self.ipaddress, e)
-            return False
+            with RemapExceptions():
+                response = post_request(self.ipaddress, command_string, timeout=LOGIN_TIMEOUT)
+                if 'outCookie' in response.attrib:
+                    self.session_cookie = response.attrib['outCookie']
+                if 'outRefreshPeriod' in response.attrib:
+                    self.session_refresh_period = response.attrib['outRefreshPeriod']
+                if 'outVersion' in response.attrib:
+                    self.version = response.attrib['outVersion']
+            return self
+        except TimeoutException:
+            print 'Timeout connecting to %s' % self.ipaddress
 
+    # @timeit
     def logout(self):
         '''
         Log out of the server instance. Invalidates the current session cookie in self.session_cookie
@@ -154,8 +100,6 @@ class UcsServer():
         if 'errorCode' in auth_response:
             self.status_message = "Logout Error: Server returned status code %s: %s" % (auth_response['errorCode'], auth_response['errorDescr'])
             raise Exception
-        else:
-            return True
 
     def set_power_state(self, power_state, force=False):
         '''
@@ -187,7 +131,7 @@ class UcsServer():
         Get the top-level chassis info and record useful info like serial number, model, memory, etc, in server.inventory['chassis'] sub-dictionary
         '''
         chassis_dict = {}
-        try:
+        with RemapExceptions():
             command_string = '<configResolveClass cookie="%s" inHierarchical="false" classId="computeRackUnit"/>' % self.session_cookie
             response_element = post_request(self.ipaddress, command_string)
             for key,value in response_element.find('.//computeRackUnit').items():
@@ -198,29 +142,18 @@ class UcsServer():
             self.total_memory = self.inventory['chassis']['totalMemory']
             self.name = self.inventory['chassis']['name']
             self.operPower = self.inventory['chassis']['operPower']
-            return True
-        except PostException as e:
-            print 'pycimc.get_chassis_info: post_request returned error:', e
-            return False
+            return self
 
     def get_cimc_info(self):
-        cimc_dict = {}
-        try:
+        with RemapExceptions():
             command_string = '<configResolveChildren cookie="%s" inHierarchical="true" inDn="sys/rack-unit-1/mgmt"/>' % self.session_cookie
             response_element = post_request(self.ipaddress, command_string)
             out_configs = response_element.find('outConfigs')
             self.inventory['cimc'] = out_configs.find('mgmtIf').attrib
-        except PostException as e:
-            print 'pycimc.get_cimc_info: post_request returned error:', e
-        except TimeoutException as e:
-            print 'pycimc.get_cimc_info:', e
-        else:
-            return True
-        return False
 
     def get_boot_order(self):
         bootorder_dict = {}
-        try:
+        with RemapExceptions():
             command_string = '<configResolveChildren cookie="%s" inHierarchical="false" inDn="sys/rack-unit-1/boot-policy"/>' % self.session_cookie
             response_element = post_request(self.ipaddress, command_string)
             out_configs = response_element.find('outConfigs')
@@ -229,34 +162,24 @@ class UcsServer():
             # represent the boot order as an ordered list from the returned dict based on the 'order' key
             #   {'1': 'virtual-media', '3': 'storage', '2': 'lan'} becomes ['virtual-media', 'lan', 'storage']
             self.inventory['boot_order'] = [bootorder_dict[key] for key in sorted(bootorder_dict)]
-            return True
-        except PostException as e:
-            print 'pycimc.get_boot_order: post_request returned error:', e
-            return False
-        except TimeoutException as e:
-            print 'pycimc.get_boot_order:', e
-            return False
+            return self
 
     def get_drive_inventory(self):
         '''
         Retrieve both physical and virtual drive inventories.
         Populate <instance>.drive_inventory with the resulting dictionary
         '''
-
         drive_dict = {'storageLocalDisk':[], 'storageVirtualDrive':[]}
         command_string = ['<configResolveClass cookie="%s" inHierarchical="false" classId="storageLocalDisk"/>' % self.session_cookie,
                           '<configResolveClass cookie="%s" inHierarchical="false" classId="storageVirtualDrive"/>' % self.session_cookie]
-        try:
+        with RemapExceptions():
             for command in command_string:
                 response_element = post_request(self.ipaddress, command)
                 out_configs = response_element.find('outConfigs')
                 for config in out_configs.getchildren():
                     drive_dict[config.tag].append(config.attrib)
             self.inventory['drives'] = drive_dict
-            return True
-        except SyntaxError as e:
-            print 'post_request returned error:', e
-            return False
+            return self
 
     def print_drive_inventory(self):
         '''
@@ -287,7 +210,7 @@ class UcsServer():
         adaptorUnit_list = []
         adaptorHostEthIf_list = []
         adaptorExtEthIf_list = []
-        try:
+        with RemapExceptions():
             # query adaptorUnit classId to find all adaptors
             #  {'dn': 'sys/rack-unit-1/adaptor-2', 'cimcManagementEnabled': 'no', 'vendor': 'Cisco Systems Inc', 'description': '', 'presence': 'equipped', 'model': 'UCSC-PCIE-CSC-02', 'adminState': 'policy', 'pciSlot': '2', 'pciAddr': '64', 'serial': 'FCH17457FSM', 'id': '2'}
             #  {'dn': 'sys/rack-unit-1/adaptor-5', 'cimcManagementEnabled': 'no', 'vendor': 'Cisco Systems Inc', 'description': '', 'presence': 'equipped', 'model': 'UCSC-PCIE-CSC-02', 'adminState': 'policy', 'pciSlot': '5', 'pciAddr': '73', 'serial': 'FCH17457FUC', 'id': '5'}
@@ -318,19 +241,15 @@ class UcsServer():
                 adaptorHostEthIf_list.append(config.attrib)
             #self.inventory['host_eth_if'] = adaptorHostEthIf_list
 
-        except PostException as e:
-            print 'pycimc.get_eth_settings: post_request returned error:', e
-            return False
-
         # Build a nested JSON structure with adaptor, physical ports, and vnics
         out_list = []
         for adaptor in adaptorUnit_list:
             # create an empty list of ports for each adaptor
-            if 'port' not in adaptor.keys():
+            if 'port' not in adaptor:
                 adaptor['port'] = []
             for port in adaptorExtEthIf_list:
                 # create an empty list of vnics for each port
-                if 'vnic' not in port.keys():
+                if 'vnic' not in port:
                     port['vnic'] = []
                 # If this port is on the current adaptor, append its dict to the 'port' list
                 if adaptor['dn'].split('/')[2] == port['dn'].split('/')[2]:
@@ -344,7 +263,6 @@ class UcsServer():
             out_list.append(adaptor)
 
         self.inventory['adaptor'] = out_list
-        return True
 
     def get_pci_inventory(self):
         '''
@@ -355,28 +273,22 @@ class UcsServer():
         '''
 
         pciEquipSlot_list = []
-        try:
+        with RemapExceptions():
             command_string = '<configResolveClass cookie="%s" inHierarchical="false" classId="pciEquipSlot"/>' % self.session_cookie
             response_element = post_request(self.ipaddress, command_string)
             out_configs = response_element.find('outConfigs')
             for config in out_configs.getchildren():
                 pciEquipSlot_list.append(config.attrib)
             self.inventory['pci'] = pciEquipSlot_list
-            return True
-        except PostException as e:
-            print 'pycimc.get_eth_settings: post_request returned error:', e
-            return False
 
     def get_bios_settings(self):
         '''
         Query the firmwareRunning class to get all FW versions on the server
         Populate <instance>.bios_settings with the resulting dictionary
         '''
-
-        bios_dict = {}
-        command_string = '<configResolveClass cookie="%s" inHierarchical="true" classId="biosSettings"/>' % self.session_cookie
-        url = "https://%s/nuova" % self.ipaddress
-        try:
+        with RemapExceptions():
+            bios_dict = {}
+            command_string = '<configResolveClass cookie="%s" inHierarchical="true" classId="biosSettings"/>' % self.session_cookie
             response_element = post_request(self.ipaddress,command_string)
             all_bios_settings = response_element.find('*/biosSettings').getchildren()
             for i in all_bios_settings:
@@ -385,40 +297,38 @@ class UcsServer():
                     if key != 'rn':
                       bios_dict[i.attrib['rn']][key]=value
             self.inventory['bios'] = bios_dict
-            return True
-        except PostException as e:
-            print 'pycimc.get_fw_versions:', e
-            return False
 
     def set_bios_custom(self):
         '''
         Set the BIOS settings to Cisco's recommendations for virtualization
         '''
-        command_string = configConfMo_prepend_string % self.session_cookie
-        for item in config.CUSTOM_BIOS_SETTINGS:
-            command_string += configConfMo_template.format(item=item)
-        command_string += configConfMo_append_string
-
-        try:
+        with RemapExceptions():
+            command_string = configConfMo_prepend_string % self.session_cookie
+            for item in config.CUSTOM_BIOS_SETTINGS:
+                command_string += configConfMo_template.format(item=item)
+            command_string += configConfMo_append_string
             response_element = post_request(self.ipaddress, command_string)
-            return True
-        except SyntaxError as e:
-            print 'post_request returned error:', e
-            return False
+
+    def set_sol_adminstate(self, state='enable', speed='115200', comport='com0'):
+        '''
+        Change the admin state of the Serial over LAN feature. Valid states are 'enable' and 'disable'.
+        Valid speeds are '115200', '57600', '38400', '19200', '9600'
+        Valid COM ports are 'com0' and 'com1'
+        '''
+        command_string = '<configConfMo cookie="%s" inHierarchical="false" dn="sys/rack-unit-1/sol-if">\
+                            <inConfig><solIf adminState="%s" speed="%s" comport="%s"></solIf>\
+                            </inConfig></configConfMo>' % (self.session_cookie, state, speed, comport)
+        with RemapExceptions():
+            response_element = post_request(self.ipaddress, command_string)
+            print 'Changed SOL admin state to', state
 
     def get_users(self):
-        user_list = []
+
         command_string = '<configResolveClass cookie="%s" inHierarchical="false" classId="aaaUser"/>' % self.session_cookie
-        try:
+        with RemapExceptions():
             response_element = post_request(self.ipaddress, command_string)
-            for user in response_element.findall('*/aaaUser'):
-                if user.attrib['name'] is not '':
-                    user_list.append(user.attrib)
-            self.inventory['users'] = user_list
-            return True
-        except PostException as e:
-            print 'pycimc.get_fw_versions:', e
-            return False
+            self.inventory['users'] =  [user.attrib for user in response_element.findall('*/aaaUser')
+                    if user.attrib['name']]
 
     def set_password(self, userid, password):
         '''<configConfMo cookie="<cookie>" inHierarchical="false" dn="sys/user-ext/user-3">
@@ -426,11 +336,13 @@ class UcsServer():
                     <aaaUser id="3" pwd="<new_password>" />
                 </inConfig>
             </configConfMo>'''
-        if len(self.inventory['users']) == 0:
+        if not self.inventory['users']:
             self.get_users()
         # Make sure we have the requested user
         try:
-            (id, dn) = next((user['id'],user['dn']) for user in self.inventory['users'] if user['name'] == userid)
+            (id, dn) = next((user['id'],user['dn'])
+                            for user in self.inventory['users']
+                            if user['name'] == userid)
         except StopIteration:
             print 'Cannot find user', userid
             return False
@@ -438,13 +350,10 @@ class UcsServer():
         # ready to go. Change the user password
         command_string = '<configConfMo cookie="%s" inHierarchical="false" dn="%s">\
             <inConfig> <aaaUser id="%s" pwd="%s" /> </inConfig> </configConfMo>' % (self.session_cookie, dn, id, password)
-        try:
+        with RemapExceptions():
             response_element = post_request(self.ipaddress, command_string)
-            return True
-        except PostException as e:
-            print 'pycimc.set_password:', e
-            return False
 
+    # @timeit
     def get_fw_versions(self):
         '''
         Query the firmwareRunning class to get all FW versions on the server
@@ -452,7 +361,7 @@ class UcsServer():
         '''
         fw_dict = {}
         command_string = '<configResolveClass cookie="%s" inHierarchical="false" classId="firmwareRunning"/>' % self.session_cookie
-        try:
+        with RemapExceptions():
             response_element = post_request(self.ipaddress,command_string)
             for i in response_element.iter('firmwareRunning'):
                 # ignore elements with 'fw-boot-loader'. More detail than we care about
@@ -460,17 +369,11 @@ class UcsServer():
                 if 'fw-boot-loader' not in i.attrib['dn']:
                     fw_dict[i.attrib['dn']] = i.attrib['version']
             self.inventory['fw'] = fw_dict
-            return True
-        except PostException as e:
-            print 'pycimc.get_fw_versions:', e
-            return False
-        except TimeoutException as e:
-            print 'pycimc.get_fw_version:', e
-            return False
+            return self
 
 def post_request(server, command_string, timeout=REQUEST_TIMEOUT):
     url = "https://%s/nuova" % server
-    try:
+    with RemapExceptions():
         response = ET.fromstring(requests.post(url, data=command_string, verify=False, timeout=timeout).text)
         #print 'response.attrib:', response.attrib
         # Check if the response has an 'errorCode' key if something went wrong
@@ -481,36 +384,39 @@ def post_request(server, command_string, timeout=REQUEST_TIMEOUT):
             raise ResponseException("'%s': '%s'" % (response.attrib['errorCode'], response.attrib['errorDescr']))
         else:
             return response
-    except requests.exceptions.Timeout:
-        raise TimeoutException('post_request(): Timeout error to %s.' % server)
-    except requests.exceptions.SSLError:
-        raise SSLError('post_request(): SSL connection error to %s.' % server)
 
 
 if __name__ == "__main__":
-    IPADDR = '172.29.85.36'
+    IPADDR = '192.168.200.100'
     USERNAME = 'admin'
     PASSWORD = 'password'
 
+    import sys
+
+
+    # Test the set_sol_adminstate() method
+    if 1:
+        with UcsServer(IPADDR, USERNAME, PASSWORD) as server:
+            server.set_sol_adminstate('enable')
 
     if 0:
-        if myserver.login():
-            if len(myserver.inventory['users'].keys()) == 0:
-                print '== user list empty - getting user list =='
-                myserver.get_users()
-                print myserver.inventory['users']
-            print '== setting new password =='
-            myserver.set_password('admin','cisco')
-            myserver.logout()
+        with UcsServer(IPADDR, USERNAME, PASSWORD) as server:
+            server.get_fw_versions()
+            out_string = server.ipaddress + ','
+            for key,value in server.inventory['fw'].items():
+                path_list = key.split('/')[2:]
+                path = '/'.join(path_list)
+                out_string += path + ',' + value + ','
+            print out_string
 
-    if 1:
+    if 0:
         with UcsServer(IPADDR,USERNAME,PASSWORD) as myserver:
             print '== chassis info =='
             myserver.get_chassis_info()
             print '== CIMC info =='
             myserver.get_cimc_info()
-            print '== Boot order =='
-            myserver.get_boot_order()
+            # print '== Boot order =='
+            # myserver.get_boot_order()
             print '== Drive inventory =='
             myserver.get_drive_inventory()
             print '== FW versions =='
@@ -521,6 +427,8 @@ if __name__ == "__main__":
             myserver.get_pci_inventory()
             print '== Interface inventory =='
             myserver.get_interface_inventory()
+
+            pprint(myserver.inventory)
 
 
     if 0:
