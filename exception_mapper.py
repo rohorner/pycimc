@@ -1,13 +1,13 @@
 import logging
 import requests
 
-class ResponseException(Exception):
+class ResponseError(Exception):
     pass
 
-class PostException(Exception):
+class PostError(Exception):
     pass
 
-class TimeoutException(Exception):
+class TimeoutError(Exception):
     pass
 
 class LoginException(Exception):
@@ -16,9 +16,13 @@ class LoginException(Exception):
 class SSL_Error(Exception):
     pass
 
+class ConnectionError(Exception):
+    pass
+
 exception_map = {
-    PostException: PostException,
-    requests.exceptions.Timeout: TimeoutException
+    PostError: PostError,
+    requests.exceptions.Timeout: TimeoutError,
+    requests.exceptions.ConnectionError: ConnectionError,
 }
 
 class RemapExceptions():
@@ -27,4 +31,4 @@ class RemapExceptions():
     def __exit__(self, exc_type, exc_val, exc_tb):
         # logging.exception()
         if exc_type in exception_map:
-            raise exception_map[exc_type]
+            raise exception_map[exc_type](exc_val)

@@ -2,7 +2,7 @@ __author__ = 'Rob Horner (robert@horners.org)'
 
 import xml.etree.ElementTree as ET
 from collections import namedtuple, defaultdict
-import time
+import time, sys
 import inspect
 from pprint import pprint
 import requests
@@ -86,8 +86,15 @@ class UcsServer():
                 if 'outVersion' in response.attrib:
                     self.version = response.attrib['outVersion']
             return self
-        except TimeoutException:
+        except TimeoutError:
             print 'Timeout connecting to %s' % self.ipaddress
+            sys.exit()
+        except ConnectionError as err:
+            print 'Could not connect to %s: %s' % (self.ipaddress, err)
+            sys.exit()
+        except ResponseError as err:
+            print 'Could not connect to %s: %s' % (self.ipaddress, err)
+            sys.exit()
 
     # @timeit
     def logout(self):
@@ -186,14 +193,12 @@ class UcsServer():
         Print out the drive inventory dict in a user-friendly format.
         '''
         if any(self.inventory['drives']):
-            if 'storageVirtualDrive' in self.drive_inventory:
-                print 'Virtual Drives:'
-                for vd in self.inventory['drives']['storageVirtualDrive']:
-                    print "{id:>2} {dn:<48} {size:>11}  {raidLevel}  {name}".format(**vd)
-                print 'Physical Drives:'
-                for pd in self.inventory['drives']['storageLocalDisk']:
-                    print "{id:>2} {dn:<48} {coercedSize:>11}  {pdStatus}".format(**pd)
-            #print self.inventory['drives']
+            print 'Virtual Drives:'
+            for vd in self.inventory['drives']['storageVirtualDrive']:
+                print "{id:>2} {dn:<48} {size:>11}  {raidLevel}  {name}".format(**vd)
+            print 'Physical Drives:'
+            for pd in self.inventory['drives']['storageLocalDisk']:
+                print "{id:>2} {dn:<48} {coercedSize:>11}  {pdStatus}".format(**pd)
         else:
             print 'No drive inventory found! Please run "get_drive_inventory() on the server instance first.'
 
@@ -373,21 +378,28 @@ class UcsServer():
 
 def post_request(server, command_string, timeout=REQUEST_TIMEOUT):
     url = "https://%s/nuova" % server
-    with RemapExceptions():
-        response = ET.fromstring(requests.post(url, data=command_string, verify=False, timeout=timeout).text)
-        #print 'response.attrib:', response.attrib
-        # Check if the response has an 'errorCode' key if something went wrong
-        # if so, then print the error message and raise an exception
-        if 'errorCode' in response.keys():
-            # print 'command:', command_string
-            # print 'response.attrib:', response.attrib
-            raise ResponseException("'%s': '%s'" % (response.attrib['errorCode'], response.attrib['errorDescr']))
-        else:
-            return response
+    try:
+        with RemapExceptions():
+            response = ET.fromstring(requests.post(url, data=command_string, verify=False, timeout=timeout).text)
+            #print 'response.attrib:', response.attrib
+            # If something went wrong, the response will have an 'errorCode' key
+            # if so, then print the error message and raise an exception
+            if 'errorCode' in response.keys():
+                # print 'command:', command_string
+                # print 'response.attrib:', response.attrib
+                raise ResponseError("'%s': '%s'" % (response.attrib['errorCode'], response.attrib['errorDescr']))
+            else:
+                return response
+    except TimeoutError:
+        print 'Timed out communicating with %s' % server
+        sys.exit()
+    # except ConnectionError:
+    #     print 'Network problem connecting to %s' % server
+    #     sys.exit()
 
 
 if __name__ == "__main__":
-    IPADDR = '192.168.200.100'
+    IPADDR = '172.29.85.40'
     USERNAME = 'admin'
     PASSWORD = 'password'
 
@@ -395,7 +407,7 @@ if __name__ == "__main__":
 
 
     # Test the set_sol_adminstate() method
-    if 1:
+    if 0:
         with UcsServer(IPADDR, USERNAME, PASSWORD) as server:
             server.set_sol_adminstate('enable')
 
@@ -409,7 +421,7 @@ if __name__ == "__main__":
                 out_string += path + ',' + value + ','
             print out_string
 
-    if 0:
+    if 1:
         with UcsServer(IPADDR,USERNAME,PASSWORD) as myserver:
             print '== chassis info =='
             myserver.get_chassis_info()
