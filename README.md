@@ -13,14 +13,14 @@ In its current state it can grab inventory for
 - boot order
 - general chassis info
 
-It can also create new virtual drives (via pexpect) and set BIOS values.
+It can also create new virtual drives (via pexpect) and set BIOS values. Version 2.x of UCS firmware will allow for creating and modifying virtual drive through XML. I'll update the code accordingly once it's available and out in the wild.
 
-The examples directory has a few samples of how to use the library. 'threaded_get_inventory' uses multithreading to query lots of servers simultaneously.
+The examples directory has a few samples of how to use the library. 'multi_get_inventory' uses multithreading to query lots of servers simultaneously. You'll almost certainly want to do this in a large data center environment, as the XMLAPI in the CIMC is fairly slow and processor-constrained, taking about 6-8 seconds for a typical query.
 
+##Installation
 To install, do the typical 'python setup.py install'
 
-cimc
-====
+##cimc
 
 As an example of how to use the library, I've created a 'cimc' CLI app that will return a json data structure of the requested inventory. It's located in the examples directory.
 
