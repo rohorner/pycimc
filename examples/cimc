@@ -1,0 +1,90 @@
+#!/usr/bin/env python
+
+'''
+Show how to build command-line parsers.
+
+p = ArgumentParser()
+         prog          The program name as it shows in the help and usage
+         usage         This line overrides the automatically generated usage
+         description   Paragraph style write-up of what the tool does
+         version       Version number (does not show-up in the help)
+                       it creates a -v or --version option automatically
+         epilog        Appears at the end of the help
+         
+p.add_argument()
+         positional args or optional args (may or may not be required)
+         help          A description of the argument
+         type          int, str, FileType(mode)
+         action        store_true, store_false, ...
+         default       makes a value optional
+         required      used only for optional args
+
+ns = p.parse_args()                 # <-- input is sys.argv
+ns.argname
+
+'''
+
+from argparse import ArgumentParser, FileType
+import sys
+from pprint import pprint
+from pycimc import UcsServer
+import json
+
+def test(p, argList):
+    print "\n=== Test with %s" % argList
+    r = p.parse_args(args=argList)
+    pprint(vars(r))
+
+p = ArgumentParser(prog = 'cimc',
+                   description = 'Control a UCS CIMC interface',
+                   )
+p.add_argument('-i', '--ip-address', help = 'IPv4 address of the host')
+p.add_argument('-u', '--username', help = 'username')
+p.add_argument('-p', '--password', help = 'password')
+# p.add_argument('-c', '--session-cookie', help = 'session cookie')
+p.add_argument('--get-cimc-info', action='store_true')
+p.add_argument('--get-boot-order', action='store_true')
+p.add_argument('--get-chassis-info', action='store_true')
+p.add_argument('--get-drive-inventory', action='store_true')
+p.add_argument('--get-interface-inventory', action='store_true')
+p.add_argument('--get-pci-inventory', action='store_true')
+p.add_argument('--get-bios-settings', action='store_true')
+p.add_argument('--get-users', action='store_true')
+
+args = p.parse_args()
+# print args
+
+'''
+    set_power_state(self, power_state, force=False):
+    print_drive_inventory(self)
+    set_bios_custom(self)
+    set_sol_adminstate(self, state='enable', speed='115200', comport='com0')
+'''
+with UcsServer(args.host_address, args.username, args.password) as server:
+    args = p.parse_args()
+    # print args
+    if args.get_cimc_info:
+        server.get_cimc_info()
+        print json.dumps(server.inventory['cimc'], indent=2)
+    if args.get_boot_order:
+        server.get_boot_order()
+        print json.dumps(server.inventory['boot_order'], indent=2)
+    if args.get_chassis_info:
+        server.get_chassis_info()
+        print json.dumps(server.inventory['chassis'], indent=2)
+    if args.get_drive_inventory:
+        server.get_drive_inventory()
+        print json.dumps(server.inventory['drives'], indent=2)
+    if args.get_interface_inventory:
+        server.get_interface_inventory()
+        print json.dumps(server.inventory['adaptor'], indent=2)
+    if args.get_users:
+        server.get_users()
+        print json.dumps(server.inventory['users'], indent=2)
+    if args.get_pci_inventory:
+        server.get_pci_inventory()
+        print json.dumps(server.inventory['pci'], indent=2)
+    if args.get_bios_settings:
+        server.get_bios_settings()
+        print json.dumps(server.inventory['bios'], indent=2)
+
