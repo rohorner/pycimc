@@ -25,7 +25,7 @@ cimc
 As an example of how to use the library, I've created a 'cimc' CLI app that will return a json data structure of the requested inventory. It's located in the examples directory.
 
 ```
-rohorner$ ./parser.py 192.168.200.100 -u admin -p password --get-pci-inventory
+rohorner$ ./cimc 192.168.200.100 -u admin -p password --get-pci-inventory
 [
   {
     "dn": "sys/rack-unit-1/equipped-slot-L", 
