@@ -17,10 +17,10 @@ It can also create new virtual drives (via pexpect) and set BIOS values. Version
 
 The examples directory has a few samples of how to use the library. 'multi_get_inventory' uses multithreading to query lots of servers simultaneously. You'll almost certainly want to do this in a large data center environment, as the XMLAPI in the CIMC is fairly slow and processor-constrained, taking about 6-8 seconds for a typical query.
 
-##Installation
+###Installation
 To install, do the typical 'python setup.py install'
 
-##cimc
+###cimc
 
 As an example of how to use the library, I've created a 'cimc' CLI app that will return a json data structure of the requested inventory. It's located in the examples directory.
 
