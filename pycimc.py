@@ -13,7 +13,7 @@ from exception_mapper import *
 LOGIN_TIMEOUT = 5.0
 REQUEST_TIMEOUT = 10.0
 
-Version = namedtuple('Version',['major','minor'])   # Class variable - data shared
+Version = namedtuple('Version',['major','minor','maintenance'])   # Class variable - data shared
 
 
 # timeit decorator for, you know, timing testing
@@ -36,7 +36,7 @@ class InventoryDict(defaultdict):
 
 class UcsServer():
 
-    version = Version(0,5)
+    version = Version(0,5,0)
 
     def __init__(self, ipaddress, username, password):
         self.session_cookie = None
