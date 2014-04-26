@@ -3,7 +3,7 @@
 from setuptools import setup
 
 setup(name='pycimc',
-      version='0.4',
+      version='0.5',
       description='Python interface to Cisco UCS rack-mount server CIMC XML API',
       author='Rob Horner',
       author_email='robert@horners.org',
