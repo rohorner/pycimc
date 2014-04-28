@@ -1,64 +1,66 @@
 #!/usr/bin/env python
 
-
 from argparse import ArgumentParser, FileType
 import sys
 from pprint import pprint
-from pycimc import UcsServer
+from pycimc import *
 import json
 
+def test(p, argList):
+    print "\n=== Test with %s" % argList
+    r = p.parse_args(args=argList)
+    pprint(vars(r))
+
+
 p = ArgumentParser(prog = 'cimc',
-                   description = 'Control a UCS CIMC interface',
-                   )
+               description = 'Control a UCS CIMC interface',
+               )
 p.add_argument('-i', '--ip-address', help = 'IPv4 address of the host', required=True)
 p.add_argument('-u', '--username', help = 'username', required=True)
 p.add_argument('-p', '--password', help = 'password', required=True)
+
+subparsers = p.add_subparsers(title = 'Valid subcommands',
+                              help = 'For more help, run "cimc <subcommand> [-h|--help]',
+                              )
 # p.add_argument('-c', '--session-cookie', help = 'session cookie')
-p.add_argument('--get-cimc-info', action='store_true')
-p.add_argument('--get-boot-order', action='store_true')
-p.add_argument('--get-chassis-info', action='store_true')
-p.add_argument('--get-drive-inventory', action='store_true')
-p.add_argument('--get-interface-inventory', action='store_true')
-p.add_argument('--get-pci-inventory', action='store_true')
-p.add_argument('--get-bios-settings', action='store_true')
-p.add_argument('--get-users', action='store_true')
+subparse_cimc = subparsers.add_parser('cimc', help = 'List and modify CIMC settings')
+subparse_cimc.set_defaults(func=UcsServer.get_cimc_info)
+subparse_cimc.add_argument('-l', '--list', action='store_true', help = 'List the current CIMC settings')
+
+subparse_boot = subparsers.add_parser('boot-order', help = 'List and modify boot order')
+subparse_boot.set_defaults(func=UcsServer.get_boot_order)
+
+subparse_chassis = subparsers.add_parser('chassis', help = 'List chassis HW/FW values')
+subparse_chassis.set_defaults(func=UcsServer.get_chassis_info)
+
+subparse_drives = subparsers.add_parser('drives', help = 'List and modify physical and virtual drives')
+subparse_drives.set_defaults(func=UcsServer.get_drive_inventory)
+
+subparse_interfaces = subparsers.add_parser('interfaces', help = 'List and modify NIC interface settings')
+subparse_interfaces.set_defaults(func=UcsServer.get_interface_inventory)
+
+subparse_pci = subparsers.add_parser('pci', help = 'List PCI card inventory')
+subparse_pci.set_defaults(func=UcsServer.get_pci_inventory)
+
+subparse_bios = subparsers.add_parser('bios', help = 'List and modify BIOS settings')
+subparse_bios.set_defaults(func=UcsServer.get_bios_settings)
+
+subparse_users = subparsers.add_parser('users', help = 'List and modify CIMC users')
+subparse_users.set_defaults(func=UcsServer.get_users)
 
 args = p.parse_args()
 # print args
 
-'''
-    Typical 'set' commands that we need to implement:
-        set_power_state(self, power_state, force=False):
-        print_drive_inventory(self)
-        set_bios_custom(self)
-        set_sol_adminstate(self, state='enable', speed='115200', comport='com0')
-'''
-
 with UcsServer(args.ip_address, args.username, args.password) as server:
     args = p.parse_args()
-    # print args
-    if args.get_cimc_info:
-        server.get_cimc_info()
-        print json.dumps(server.inventory['cimc'], indent=2)
-    if args.get_boot_order:
-        server.get_boot_order()
-        print json.dumps(server.inventory['boot_order'], indent=2)
-    if args.get_chassis_info:
-        server.get_chassis_info()
-        print json.dumps(server.inventory['chassis'], indent=2)
-    if args.get_drive_inventory:
-        server.get_drive_inventory()
-        print json.dumps(server.inventory['drives'], indent=2)
-    if args.get_interface_inventory:
-        server.get_interface_inventory()
-        print json.dumps(server.inventory['adaptor'], indent=2)
-    if args.get_users:
-        server.get_users()
-        print json.dumps(server.inventory['users'], indent=2)
-    if args.get_pci_inventory:
-        server.get_pci_inventory()
-        print json.dumps(server.inventory['pci'], indent=2)
-    if args.get_bios_settings:
-        server.get_bios_settings()
-        print json.dumps(server.inventory['bios'], indent=2)
+    args.func(server)
+    print json.dumps(server.inventory, indent=2)
 
+
+'''
+Interesting things to add 'set' methods for later:
+    set_power_state(self, power_state, force=False):
+    print_drive_inventory(self)
+    set_bios_custom(self)
+    set_sol_adminstate(self, state='enable', speed='115200', comport='com0')
+'''
