@@ -13,6 +13,7 @@ X-Python-Version: >= 2.7
 Package: python-pycimc
 Architecture: all
 Depends: ${misc:Depends},
+ python-pexpect,
  python-requests,
  ${python:Depends}
 Description: Python interface to Cisco UCS rack-mount server CIMC XML API
