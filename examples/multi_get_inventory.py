@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 
-__author__ = 'Rob Horner (robert@horners.org)'
-
 from pycimc import UcsServer
 import config
 from Queue import Queue
@@ -9,7 +7,7 @@ from threading import Thread, Lock
 from time import time
 
 queue = Queue()
-WORKERS = 25
+WORKERS = 50
 
 class ThreadLogin(Thread):
     '''Threaded Login'''
@@ -23,19 +21,16 @@ class ThreadLogin(Thread):
             host = self.queue.get()
 
             with UcsServer(host, config.USERNAME, config.PASSWORD) as server:
+                server.get_interface_inventory()
                 out_string = server.ipaddress
-                if server.get_interface_inventory():
-                    for int in server.inventory['adaptor']:
-                        out_string += ',SLOT-'+int['pciSlot']
-                        for port in int['port']:
-                            out_string += ',port-'+str(port['portId'])+','+port['adminSpeed']+','+port['linkState']
-                            for vnic in port['vnic']:
-                                out_string += ','+str(vnic['name'])+','+str(vnic['mac'])
-                    with self.lock:
-                        print out_string
-                else:
-                    with self.lock:
-                        print host,'get_interface_inventory() returned False'
+                for int in server.inventory['adaptor']:
+                    out_string += ',SLOT-'+int['pciSlot']
+                    for port in int['port']:
+                        out_string += ',port-'+str(port['portId'])+','+port['adminSpeed']+','+port['linkState']
+                        for vnic in port['vnic']:
+                            out_string += ','+str(vnic['name'])+','+str(vnic['mac'])
+                with self.lock:
+                    print out_string
 
             self.queue.task_done()
 

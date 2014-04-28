@@ -1,3 +1,4 @@
+from pycimc import UcsServer
 import config
 
 __author__ = 'Rob Horner (robert@horners.org)'

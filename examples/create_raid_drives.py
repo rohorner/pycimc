@@ -26,23 +26,20 @@ for IP_ADDRESS in config.SERVERS:
 
         # Build two lists - current VirtualDrive inventory and PhysicalDisk inventory to pass into pycimcexpect
         print '=== Building pycimcexpect lists for drive modification ==='
-        vd_list = []
-        for vd in myserver.drive_inventory['storageVirtualDrive']:
-            vd_list.append(vd['id'])
+
+        vd_list = [vd['id'] for vd in myserver.drive_inventory['storageVirtualDrive']]
+
         print 'VD list:', vd_list
         pd_list = []
         for pd in myserver.drive_inventory['storageLocalDisk']:
             # confirm that the first two drives are the same size so that we can create RAID1 for the OS
             if (pd['id'] == '1') and (pd['pdStatus'] == 'Unconfigured Good'):
                 first_drive_size = pd['coercedSize']
-                continue
             elif (pd['id'] == '2') and (pd['pdStatus'] == 'Unconfigured Good'): # check if second drive is same size as the first drive
                 if pd['coercedSize'] != first_drive_size:
                     print "First two drives are not the same size. Can't build a RAID1 array for the OS!"
-                    continue
                 else: # special case in PD list for the first two drives to become RAID1
                     pd_list.append({'id':'1,2', 'size':pd['coercedSize'], 'raid_level':'1', 'name':'RAID1_12'})
-                    continue
             # All other drives become single RAID0
             # Only build RAID on HDDs, not SSDs
             ### FOR NOW ONLY DO RAID1 FOR OS ###
@@ -52,7 +49,7 @@ for IP_ADDRESS in config.SERVERS:
         pprint(pd_list)
         print 'PD list is length',len(pd_list)
 
-        try:
+        with AutoLogout(myserver):
             session = pycimcexpect.login(IP_ADDRESS, config.USERNAME, config.PASSWORD)
             # Use pycimcexpect remove_virtualdrives method to remove any existing VDs,
             # and the create_virtualdrives method to create new RAID0 VDs.
@@ -63,7 +60,7 @@ for IP_ADDRESS in config.SERVERS:
                 pycimcexpect.remove_virtualdrives(session, vd_list, 'SLOT-4')
 
             # Create new RAID VDs from existing physical drives
-            if len(pd_list) > 0:
+            if pd_list:
                 print '====== Creating new virtual drives ======'
                 for pd in pd_list:
                     pycimcexpect.create_virtualdrives(session, pd, 'SLOT-4')
@@ -78,11 +75,3 @@ for IP_ADDRESS in config.SERVERS:
 
             pycimcexpect.logout(session)
 
-        except Exception as err:
-            print 'pycimcexpect error:', err
-
-        myserver.logout()
-
-    except Exception:
-        myserver.logout()
-        print myserver.status_message
