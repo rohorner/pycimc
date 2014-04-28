@@ -1,0 +1,20 @@
+Source: pycimc
+Maintainer: Matt Fischer <mfisch@ubuntu.com>
+Section: python
+Priority: optional
+Build-Depends: python-setuptools (>= 0.6b3),
+ python-all (>= 2.6.6-3),
+ debhelper (>= 7)
+Standards-Version: 3.9.5
+Vcs-Browser: https://github.com/rohorner/pycimc
+Vcs-Git: git://github.com/rohorner/pycimc.git
+X-Python-Version: >= 2.7
+
+Package: python-pycimc
+Architecture: all
+Depends: ${misc:Depends},
+ python-requests,
+ ${python:Depends}
+Description: Python interface to Cisco UCS rack-mount server CIMC XML API
+ Provides a library to interact with Cisco UCS CIMCs and an sample CLI
+ for testing and puppet usage.
