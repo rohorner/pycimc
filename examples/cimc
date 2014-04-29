@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from argparse import ArgumentParser, FileType
+from argparse import ArgumentParser, FileType, ArgumentDefaultsHelpFormatter
 import sys
 from pprint import pprint
 from pycimc import *
@@ -12,49 +12,100 @@ def test(p, argList):
     pprint(vars(r))
 
 
-p = ArgumentParser(prog = 'cimc',
+parent = ArgumentParser(prog = 'cimc',
                description = 'Control a UCS CIMC interface',
-               )
-p.add_argument('-i', '--ip-address', help = 'IPv4 address of the host', required=True)
-p.add_argument('-u', '--username', help = 'username', required=True)
-p.add_argument('-p', '--password', help = 'password', required=True)
+               epilog = 'For more help, run "cimc <subcommand> [-h|--help]',
+               formatter_class = ArgumentDefaultsHelpFormatter,
+               add_help=False)
 
-subparsers = p.add_subparsers(title = 'Valid subcommands',
-                              help = 'For more help, run "cimc <subcommand> [-h|--help]',
-                              )
-# p.add_argument('-c', '--session-cookie', help = 'session cookie')
-subparse_cimc = subparsers.add_parser('cimc', help = 'List and modify CIMC settings')
-subparse_cimc.set_defaults(func=UcsServer.get_cimc_info)
-subparse_cimc.add_argument('-l', '--list', action='store_true', help = 'List the current CIMC settings')
+parent.add_argument("-h", "--help", action="help", help="Show this help message and exit")
+parent.add_argument('-i', '--ip-address', help = 'IPv4 address of the host', required=True)
+parent.add_argument('-u', '--username', help = 'username', default = 'admin')
+parent.add_argument('-p', '--password', help = 'password', default = 'password')
 
-subparse_boot = subparsers.add_parser('boot-order', help = 'List and modify boot order')
-subparse_boot.set_defaults(func=UcsServer.get_boot_order)
+subcommands = parent.add_subparsers(title = 'Valid subcommands')
 
-subparse_chassis = subparsers.add_parser('chassis', help = 'List chassis HW/FW values')
-subparse_chassis.set_defaults(func=UcsServer.get_chassis_info)
+# build 'management' subcommand
+subcmd_mgmt = subcommands.add_parser('management',
+                                     description = 'List and modify CIMC manager settings',
+                                     help = 'List and modify CIMC manager settings')
+subcmd_mgmt.set_defaults(func=UcsServer.get_cimc_info)
+subcmd_mgmt.add_argument('-l', '--list',
+                           action='store_true',
+                           help = 'List the current CIMC settings')
+subcmd_mgmt.add_argument('-b', '--brief',
+                               action = 'store_true',
+                               help = 'brief output')
 
-subparse_drives = subparsers.add_parser('drives', help = 'List and modify physical and virtual drives')
-subparse_drives.set_defaults(func=UcsServer.get_drive_inventory)
+# build 'boot-order' subcommand
+subcmd_boot = subcommands.add_parser('boot-order',
+                                      help = 'List and modify boot order')
+subcmd_boot.set_defaults(func=UcsServer.get_boot_order)
+subcmd_boot.add_argument('-b', '--brief',
+                               action = 'store_true',
+                               help = 'brief output')
 
-subparse_interfaces = subparsers.add_parser('interfaces', help = 'List and modify NIC interface settings')
-subparse_interfaces.set_defaults(func=UcsServer.get_interface_inventory)
+# build 'chassis' subcommand
+subcmd_chassis = subcommands.add_parser('chassis',
+                                         help = 'List chassis HW/FW values')
+subcmd_chassis.set_defaults(func=UcsServer.get_chassis_info)
+subcmd_chassis.add_argument('-b', '--brief',
+                               action = 'store_true',
+                               help = 'brief output')
 
-subparse_pci = subparsers.add_parser('pci', help = 'List PCI card inventory')
-subparse_pci.set_defaults(func=UcsServer.get_pci_inventory)
+# build 'drives' subcommand
+subcmd_drives = subcommands.add_parser('drives',
+                                        help = 'List and modify physical and virtual drives')
+subcmd_drives.set_defaults(func=UcsServer.get_drive_inventory)
+subcmd_drives.add_argument('-b', '--brief',
+                               action = 'store_true',
+                               help = 'brief output')
 
-subparse_bios = subparsers.add_parser('bios', help = 'List and modify BIOS settings')
-subparse_bios.set_defaults(func=UcsServer.get_bios_settings)
+# build 'interfaces' subcommand
+subcmd_interfaces = subcommands.add_parser('interfaces',
+                                            help = 'List and modify NIC interface settings',
+                                            description = 'List and modify NIC interface settings')
+subcmd_interfaces.set_defaults(func=UcsServer.get_interface_inventory)
+subcmd_interfaces.add_argument('-b', '--brief',
+                               action='store_const',
+                               const=['id', 'port', 'portId', 'linkState', 'name'],
+                               help = 'brief output')
 
-subparse_users = subparsers.add_parser('users', help = 'List and modify CIMC users')
-subparse_users.set_defaults(func=UcsServer.get_users)
+# build 'pci' subcommand
+subcmd_pci = subcommands.add_parser('pci',
+                                     help = 'List PCI card inventory')
+subcmd_pci.set_defaults(func=UcsServer.get_pci_inventory)
+subcmd_pci.add_argument('-b', '--brief',
+                               action = 'store_true',
+                               help = 'brief output')
 
-args = p.parse_args()
-# print args
+# build 'bios' subcommand
+subcmd_bios = subcommands.add_parser('bios',
+                                      help = 'List and modify BIOS settings')
+subcmd_bios.set_defaults(func=UcsServer.get_bios_settings)
+subcmd_bios.add_argument('-b', '--brief',
+                               action = 'store_true',
+                               help = 'brief output')
+
+# build 'users' subcommand
+subcmd_users = subcommands.add_parser('users',
+                                       help = 'List and modify CIMC users')
+subcmd_users.set_defaults(func=UcsServer.get_users)
+subcmd_users.add_argument('-b', '--brief',
+                               action = 'store_true',
+                               help = 'brief output')
+
+
+args = parent.parse_args()
+print args
 
 with UcsServer(args.ip_address, args.username, args.password) as server:
-    args = p.parse_args()
+    args = parent.parse_args()
     args.func(server)
-    print json.dumps(server.inventory, indent=2)
+    inventory = server.inventory
+    if args.brief:
+        print 'got --brief passed to me'
+    print json.dumps(inventory, indent=2)
 
 
 '''
