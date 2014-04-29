@@ -97,7 +97,7 @@ subcmd_users.add_argument('-b', '--brief',
 
 
 args = parent.parse_args()
-print args
+# print args
 
 with UcsServer(args.ip_address, args.username, args.password) as server:
     args = parent.parse_args()
