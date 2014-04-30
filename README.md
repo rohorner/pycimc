@@ -22,10 +22,10 @@ To install, do the typical 'python setup.py install'
 
 ###cimc
 
-As an example of how to use the library, I've created a 'cimc' CLI app that will return a json data structure of the requested inventory. It's located in the examples directory.
+As an example of how to use the library, I've created a 'cimc' CLI app that will return a json data structure of the requested inventory. It's located in the examples directory. Run 'cimc --help' to see all of the subsystem info that can be pulled from the server.
 
 ```
-rohorner$ ./cimc 192.168.200.100 -u admin -p password --get-pci-inventory
+rohorner$ ./cimc -i 192.168.200.100 pci
 [
   {
     "dn": "sys/rack-unit-1/equipped-slot-L", 
