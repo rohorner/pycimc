@@ -121,7 +121,6 @@ with UcsServer(args.ip_address, args.username, args.password) as server:
                     temp_vnic_dict = dict()
                     temp_vnic_dict['name'] = vnic['name']
                     temp_vnic_dict['pxeBoot'] = vnic['pxeBoot']
-                    temp_vnic_dict['mtu'] = vnic['mtu']
                     temp_vnic_dict['mac'] = vnic['mac']
                     temp_port_dict['vnic'].append(temp_vnic_dict)
                 adaptor_dict['port'].append(temp_port_dict)
