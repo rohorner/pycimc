@@ -95,11 +95,20 @@ subcmd_users.add_argument('-b', '--brief',
                                action = 'store_true',
                                help = 'brief output')
 
+# build 'users' subcommand
+subcmd_users = subcommands.add_parser('psu',
+                                       help = 'List PSU inventory and status')
+subcmd_users.set_defaults(func=UcsServer.get_psu_inventory)
+subcmd_users.add_argument('-b', '--brief',
+                               action = 'store_true',
+                               help = 'brief output')
+
 
 args = parent.parse_args()
 # print args
 
 with UcsServer(args.ip_address, args.username, args.password) as server:
+    print 'Server FW:',server.version
     args = parent.parse_args()
     args.func(server)
     inventory = server.inventory

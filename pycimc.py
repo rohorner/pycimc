@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 __author__ = 'Rob Horner (robert@horners.org)'
 
 import xml.etree.ElementTree as ET
@@ -36,7 +38,7 @@ class InventoryDict(defaultdict):
 
 class UcsServer():
 
-    version = Version(0,5,1)
+    version = Version(0,5,2)
 
     def __init__(self, ipaddress, username, password):
         self.session_cookie = None
@@ -165,6 +167,7 @@ class UcsServer():
             response_element = post_request(self.ipaddress, command_string)
             out_configs = response_element.find('outConfigs')
             for i in out_configs.getchildren():
+                print i
                 bootorder_dict[i.attrib['order']] = i.attrib['type']
             # represent the boot order as an ordered list from the returned dict based on the 'order' key
             #   {'1': 'virtual-media', '3': 'storage', '2': 'lan'} becomes ['virtual-media', 'lan', 'storage']
@@ -174,7 +177,7 @@ class UcsServer():
     def get_drive_inventory(self):
         '''
         Retrieve both physical and virtual drive inventories.
-        Populate <instance>.drive_inventory with the resulting dictionary
+        Populate <instance>.inventory['drives'] with the resulting dictionary
         '''
         drive_dict = {'storageLocalDisk':[], 'storageVirtualDrive':[]}
         command_string = ['<configResolveClass cookie="%s" inHierarchical="false" classId="storageLocalDisk"/>' % self.session_cookie,
@@ -286,10 +289,34 @@ class UcsServer():
                 pciEquipSlot_list.append(config.attrib)
             self.inventory['pci'] = pciEquipSlot_list
 
+    def get_psu_inventory(self):
+        '''
+        Query the equipmentPsu class to get the power supply inventory and status on the server
+        Populate <instance>.inventory['ps'] with the resulting dictionary
+
+        Example XMLAPI response:
+        <configResolveClass cookie="1399390892/150e0b80-f8bd-18bd-8009-2678d0f1d3e4" response="yes" classId="equipmentPsu">
+            <outConfigs>
+                <equipmentPsu id="1" model="UCSC-PSU-650W" operability="operable" power="on" presence="equipped" serial="LIT162304LU" thermal="ok" vendor="Cisco Systems Inc" voltage="ok" dn="sys/rack-unit-1/psu-1" ></equipmentPsu>
+                <equipmentPsu id="2" model="" operability="unknown" power="off" presence="missing" serial="" thermal="unknown" vendor="" voltage="unknown" dn="sys/rack-unit-1/psu-2" ></equipmentPsu>
+            </outConfigs>
+        </configResolveClass>
+        '''
+
+        psu_list = []
+        with RemapExceptions():
+            command_string = '<configResolveClass cookie="%s" inHierarchical="false" classId="equipmentPsu"/>' % self.session_cookie
+            response_element = post_request(self.ipaddress, command_string)
+            out_configs = response_element.find('outConfigs')
+            for config in out_configs.getchildren():
+                psu_list.append(config.attrib)
+            self.inventory['psu'] = psu_list
+
+
     def get_bios_settings(self):
         '''
         Query the firmwareRunning class to get all FW versions on the server
-        Populate <instance>.bios_settings with the resulting dictionary
+        Populate <instance>.inventory['bios'] with the resulting dictionary
         '''
         with RemapExceptions():
             bios_dict = {}
@@ -399,7 +426,7 @@ def post_request(server, command_string, timeout=REQUEST_TIMEOUT):
 
 
 if __name__ == "__main__":
-    IPADDR = '172.29.85.40'
+    IPADDR = '192.168.200.100'
     USERNAME = 'admin'
     PASSWORD = 'password'
 
@@ -439,6 +466,8 @@ if __name__ == "__main__":
             myserver.get_pci_inventory()
             print '== Interface inventory =='
             myserver.get_interface_inventory()
+            print '== PSU inventory =='
+            myserver.get_psu_inventory()
 
             pprint(myserver.inventory)
 
