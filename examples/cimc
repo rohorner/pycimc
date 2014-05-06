@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 
 from argparse import ArgumentParser, FileType, ArgumentDefaultsHelpFormatter
-import sys
+from xml.sax.saxutils import escape
 from pprint import pprint
 from pycimc import *
 import json
+
 
 def test(p, argList):
     print "\n=== Test with %s" % argList
@@ -107,7 +108,7 @@ subcmd_users.add_argument('-b', '--brief',
 args = parent.parse_args()
 # print args
 
-with UcsServer(args.ip_address, args.username, args.password) as server:
+with UcsServer(args.ip_address, escape(args.username), escape(args.password)) as server:
     print 'Server FW:',server.version
     args = parent.parse_args()
     args.func(server)
