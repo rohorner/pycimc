@@ -14,9 +14,10 @@ from exception_mapper import *
 
 LOGIN_TIMEOUT = 5.0
 REQUEST_TIMEOUT = 10.0
+CREATE_DRIVE_TIMEOUT = 60.0
 
 Version = namedtuple('Version',['major','minor','maintenance'])   # Class variable - data shared
-
+VirtualDrive = namedtuple('VirtualDrive',['drive_path', 'virtual_drive_name', 'raid_level', 'raid_size', 'drive_group', 'write_policy'])
 
 # timeit decorator for, you know, timing testing
 def timeit(method):
@@ -38,7 +39,7 @@ class InventoryDict(defaultdict):
 
 class UcsServer():
 
-    version = Version(0,5,2)
+    version = Version(0,6,0)
 
     def __init__(self, ipaddress, username, password):
         self.session_cookie = None
@@ -191,6 +192,16 @@ class UcsServer():
             self.inventory['drives'] = drive_dict
             return self
 
+    def get_local_drive_usage(self):
+        local_drive_usage_list=[]
+        command_string = '<configResolveClass cookie="%s" inHierarchical="false" classId="storageLocalDiskUsage"/>' % self.session_cookie
+        response_element = post_request(self.ipaddress, command_string)
+        out_configs = response_element.find('outConfigs')
+        for config in out_configs.getchildren():
+            local_drive_usage_list.append(config.attrib)
+        self.inventory['drive_usage'] = local_drive_usage_list
+        return self
+
     def print_drive_inventory(self):
         '''
         Print out the drive inventory dict in a user-friendly format.
@@ -204,6 +215,42 @@ class UcsServer():
                 print "{id:>2} {dn:<48} {coercedSize:>11}  {pdStatus}".format(**pd)
         else:
             print 'No drive inventory found! Please run "get_drive_inventory() on the server instance first.'
+
+    @timeit
+    def create_virtual_drive(self, controller_path, virtual_drive_name, raid_level, raid_size, drive_group, write_policy='Write Back Good BBU', force=False, debug=False):
+        '''
+        <configConfMo cookie='$REPLACE_ACTUAL_COOKIE_VALUE' inHierarchical='false' dn='sys/rack-unit-1/board/storage-SAS-SLOT-2/virtual-drive-create'>
+           <inConfig>
+              <storageVirtualDriveCreatorUsingUnusedPhysicalDrive dn='sys/rack-unit-1/board/storage-SAS-SLOT-2/virtual-drive-create'
+               virtualDriveName='RAID0_5'
+               raidLevel='0'
+               size='952720 MB'
+               driveGroup='[5]'
+               writePolicy='Write Back Good BBU'
+               adminState='trigger'/>
+           </inConfig>
+        </configConfMo>
+        '''
+        if force:
+            command_string = '''<configConfMo cookie="%s" inHierarchical="false" dn="%s/virtual-drive-create">
+               <inConfig>
+                  <storageVirtualDriveCreatorUsingUnusedPhysicalDrive dn="%s/virtual-drive-create"
+                   virtualDriveName="%s"
+                   raidLevel="%s"
+                   size="%s"
+                   driveGroup="[%s]"
+                   writePolicy="%s"
+                   adminState="trigger"/>
+               </inConfig>
+            </configConfMo>''' % (self.session_cookie, controller_path, controller_path, virtual_drive_name, raid_level, raid_size, drive_group, write_policy)
+            if debug:
+                print 'XML Drive create command:',command_string
+            response_element = post_request(self.ipaddress, command_string, timeout=CREATE_DRIVE_TIMEOUT)
+            return True
+        else:
+            print 'create_virtual_drive() must be called with "force=True" to create the drive'
+            return False
+
 
     #@timeit
     def get_interface_inventory(self):
@@ -408,12 +455,12 @@ def post_request(server, command_string, timeout=REQUEST_TIMEOUT):
     try:
         with RemapExceptions():
             response = ET.fromstring(requests.post(url, data=command_string, verify=False, timeout=timeout).text)
-            #print 'response.attrib:', response.attrib
+            # print 'response.attrib:', response.attrib
             # If something went wrong, the response will have an 'errorCode' key
             # if so, then print the error message and raise an exception
             if 'errorCode' in response.keys():
-                # print 'command:', command_string
-                # print 'response.attrib:', response.attrib
+                print 'command:', command_string
+                print 'response.attrib:', response.attrib
                 raise ResponseError("'%s': '%s'" % (response.attrib['errorCode'], response.attrib['errorDescr']))
             else:
                 return response
@@ -426,7 +473,7 @@ def post_request(server, command_string, timeout=REQUEST_TIMEOUT):
 
 
 if __name__ == "__main__":
-    IPADDR = '192.168.200.100'
+    IPADDR = '192.168.200.101'
     USERNAME = 'admin'
     PASSWORD = 'password'
 
@@ -449,35 +496,35 @@ if __name__ == "__main__":
             print out_string
 
     if 1:
-        with UcsServer(IPADDR,USERNAME,PASSWORD) as myserver:
+        with UcsServer(IPADDR,USERNAME,PASSWORD) as server:
             print '== chassis info =='
-            myserver.get_chassis_info()
+            server.get_chassis_info()
             print '== CIMC info =='
-            myserver.get_cimc_info()
+            server.get_cimc_info()
             # print '== Boot order =='
             # myserver.get_boot_order()
             print '== Drive inventory =='
-            myserver.get_drive_inventory()
+            server.get_drive_inventory()
             print '== FW versions =='
-            myserver.get_fw_versions()
+            server.get_fw_versions()
             print '== BIOS settings =='
-            myserver.get_bios_settings()
+            server.get_bios_settings()
             print '== PCI inventory =='
-            myserver.get_pci_inventory()
+            server.get_pci_inventory()
             print '== Interface inventory =='
-            myserver.get_interface_inventory()
+            server.get_interface_inventory()
             print '== PSU inventory =='
-            myserver.get_psu_inventory()
+            server.get_psu_inventory()
 
-            pprint(myserver.inventory)
+            pprint(server.inventory)
 
 
     if 0:
-        if myserver.login():
+        if server.login():
             for item,command in command_strings.items():
                 start = time.time()
-                full_command = command % myserver.session_cookie
-                response = post_request(myserver.ipaddress, full_command)
+                full_command = command % server.session_cookie
+                response = post_request(server.ipaddress, full_command)
                 print item
                 tmp = response.find('outConfigs').getchildren()
                 for item in tmp:
@@ -485,4 +532,4 @@ if __name__ == "__main__":
                 print (time.time() - start)
                 print '\n'
 
-            myserver.logout()
+            server.logout()
