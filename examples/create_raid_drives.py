@@ -1,5 +1,7 @@
+#!/usr/bin/env python
+
 from pycimc import *
-import config
+from collections import namedtuple
 
 __author__ = 'Rob Horner (robert@horners.org)'
 
@@ -8,70 +10,63 @@ __author__ = 'Rob Horner (robert@horners.org)'
     first two HDDs to install the OS, and create single-drive RAID0 virtual drives for the remainder
 '''
 
-remove_vds = True
+VirtualDrive = namedtuple('VirtualDrive',['controller_path', 'virtual_drive_name', 'raid_level', 'raid_size', 'drive_group', 'write_policy'])
 
+remove_vds = False
 
-for IP_ADDRESS in config.SERVERS:
-    print '\n=== Server '+IP_ADDRESS+' ==='
-    myserver = UcsServer(IP_ADDRESS, config.USERNAME, config.PASSWORD)
+IP_ADDRESS = '192.168.200.101'
+USERNAME = 'admin'
+PASSWORD = 'password'
 
-    try:
-        myserver.login()
+print '\n=== Server '+IP_ADDRESS+' ==='
 
-        print '=== Get Drive Inventory ==='
-        if myserver.get_drive_inventory():
-            myserver.print_drive_inventory()
-        else:
-            print "Couldn't retrieve drive inventory"
+with UcsServer(IP_ADDRESS, USERNAME, PASSWORD) as server:
 
-        # Build two lists - current VirtualDrive inventory and PhysicalDisk inventory to pass into pycimcexpect
-        print '=== Building pycimcexpect lists for drive modification ==='
+    print '=== Get Drive Inventory ==='
+    if server.get_drive_inventory():
+        server.print_drive_inventory()
+    else:
+        print "Couldn't retrieve drive inventory"
 
-        vd_list = [vd['id'] for vd in myserver.drive_inventory['storageVirtualDrive']]
+    # Build two lists - current VirtualDrive inventory and PhysicalDisk inventory to pass into pycimcexpect
+    print '=== Building lists for drive modification ==='
 
-        print 'VD list:', vd_list
-        pd_list = []
-        for pd in myserver.drive_inventory['storageLocalDisk']:
-            # confirm that the first two drives are the same size so that we can create RAID1 for the OS
-            if (pd['id'] == '1') and (pd['pdStatus'] == 'Unconfigured Good'):
-                first_drive_size = pd['coercedSize']
-            elif (pd['id'] == '2') and (pd['pdStatus'] == 'Unconfigured Good'): # check if second drive is same size as the first drive
-                if pd['coercedSize'] != first_drive_size:
-                    print "First two drives are not the same size. Can't build a RAID1 array for the OS!"
-                else: # special case in PD list for the first two drives to become RAID1
-                    pd_list.append({'id':'1,2', 'size':pd['coercedSize'], 'raid_level':'1', 'name':'RAID1_12'})
-            # All other drives become single RAID0
-            # Only build RAID on HDDs, not SSDs
-            ### FOR NOW ONLY DO RAID1 FOR OS ###
-            # if (pd['mediaType'] == 'HDD') and (pd['pdStatus'] == 'Unconfigured Good'):
-            #    pd_list.append({'id':pd['id'], 'size':pd['coercedSize'], 'raid_level':'0', 'name':'RAID0_'+pd['id']})
-        print 'PD list:'
-        pprint(pd_list)
-        print 'PD list is length',len(pd_list)
+    virt_drive_list = [virt_drive['id'] for virt_drive in server.inventory['drives']['storageVirtualDrive']]
 
-        with AutoLogout(myserver):
-            session = pycimcexpect.login(IP_ADDRESS, config.USERNAME, config.PASSWORD)
-            # Use pycimcexpect remove_virtualdrives method to remove any existing VDs,
-            # and the create_virtualdrives method to create new RAID0 VDs.
+    print 'Virtual Drive list:', virt_drive_list
+    new_virtual_drive_list = []
+    for phys_drive in server.inventory['drives']['storageLocalDisk']:
+        # confirm that the first two drives are the same size so that we can create RAID1 for the OS
+        # if (phys_drive['id'] == '1') and (phys_drive['pdStatus'] == 'Unconfigured Good'):
+        #     first_drive_size = phys_drive['coercedSize']
+        # elif (phys_drive['id'] == '2') and (phys_drive['pdStatus'] == 'Unconfigured Good'): # check if second drive is same size as the first drive
+        #     if phys_drive['coercedSize'] != first_drive_size:
+        #         print "First two drives are not the same size. Can't build a RAID1 array for the OS!"
+        #     else: # special case in PD list for the first two drives to become RAID1
+        #         phys_drive_list.append({'id':'1,2', 'size':phys_drive['coercedSize'], 'raid_level':'1', 'name':'RAID1_12'})
+        # All other drives become single RAID0
+        # Only build RAID on HDDs, not SSDs
+        ### FOR NOW ONLY DO RAID1 FOR OS ###
+        if (phys_drive['mediaType'] == 'HDD') and (phys_drive['pdStatus'] == 'Unconfigured Good'):
+            # remove the phys drive piece at the end to get the controller path
+            # e.g. sys/rack-unit-1/board/storage-SAS-SLOT-2/pd-1 => sys/rack-unit-1/board/storage-SAS-SLOT-2
+            full_path = phys_drive['dn']
+            controller_path = full_path[:full_path.rfind('/')]
+            new_virtual_drive = VirtualDrive(controller_path, 'RAID0_'+phys_drive['id'], '0', phys_drive['coercedSize'], phys_drive['id'], write_policy='Write Back Good BBU')
+            new_virtual_drive_list.append(new_virtual_drive)
+    print 'New Virtual Drive list:'
+    pprint(new_virtual_drive_list)
+    print 'New Virtual Drive list is length',len(new_virtual_drive_list)
+    for virtual_drive in new_virtual_drive_list:
+        #   create_virtual_drive(self, controller_path, virtual_drive_name, raid_level, raid_size, drive_group, write_policy='Write Back Good BBU', force=False):
+        if server.create_virtual_drive(virtual_drive.controller_path,
+                                    virtual_drive.virtual_drive_name,
+                                    virtual_drive.raid_level,
+                                    virtual_drive.raid_size,
+                                    virtual_drive.drive_group,
+                                    force=True):
+            print "Successfully created drive", virtual_drive.virtual_drive_name
 
-            # remove all existing VDs
-            if (remove_vds == True) and (vd_list > 0):
-                print '======  Removing existing virtual drives ======'
-                pycimcexpect.remove_virtualdrives(session, vd_list, 'SLOT-4')
-
-            # Create new RAID VDs from existing physical drives
-            if pd_list:
-                print '====== Creating new virtual drives ======'
-                for pd in pd_list:
-                    pycimcexpect.create_virtualdrives(session, pd, 'SLOT-4')
-                    if len(pd_list)>1:  # allow the controller to settle between configs
-                        sleep(20)
-                # Reread the server's drive inventory
-                sleep(5)
-
-            # Refresh the drive inventory
-            myserver.get_drive_inventory()
-            myserver.print_drive_inventory()
-
-            pycimcexpect.logout(session)
+    if server.get_drive_inventory():
+        server.print_drive_inventory()
 
