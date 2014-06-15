@@ -13,7 +13,7 @@ In its current state it can grab inventory for
 - boot order
 - general chassis info
 
-It can also create new virtual drives (via pexpect) and set BIOS values. Version 2.x of UCS firmware allows for creating and modifying virtual drives through the XML interface. I'll update the code accordingly once it's available and out in the wild.
+Version 2.x of UCS firmware allows for creating and modifying virtual drives through the XML interface. See "create_raid_drives.py" in the examples directory.
 
 The examples directory has a few samples of how to use the library. 'multi_get_inventory' uses multithreading to query lots of servers simultaneously. You'll almost certainly want to do this in a large data center environment, as the XMLAPI in the CIMC is fairly slow and processor-constrained, taking about 6-8 seconds for a typical query.
 
