@@ -65,7 +65,7 @@ class UcsServer():
 
     # @timeit
     def login(self):
-        '''
+        """
         Log in to the CIMC using the instance's ipaddress, username, and password configured during init()
 
         XML Query:
@@ -74,7 +74,7 @@ class UcsServer():
         <aaaLogin cookie="" response="yes" outCookie="1394044707/539306f8-f3e0-13e0-8005-1af7ea354e4c" outRefreshPeriod="600"
             outPriv="admin" outSessionId="43" outVersion="1.5(4)"> </aaaLogin>
 
-        '''
+        """
         command_string = "<aaaLogin inName='%s' inPassword='%s'></aaaLogin>" % (self.username, self.password)
         try:
             with RemapExceptions():
@@ -98,9 +98,9 @@ class UcsServer():
 
     # @timeit
     def logout(self):
-        '''
+        """
         Log out of the server instance. Invalidates the current session cookie in self.session_cookie
-        '''
+        """
         command_string = "<aaaLogout cookie='%s' inCookie='%s'></aaaLogout>" % (self.session_cookie, self.session_cookie)
         auth_response = post_request(self.ipaddress, command_string)
 
@@ -109,7 +109,7 @@ class UcsServer():
             raise Exception
 
     def set_power_state(self, power_state, force=False):
-        '''
+        """
         Change the power state of the server.
 
         power_state options from the XML Schema are
@@ -117,7 +117,7 @@ class UcsServer():
                 "hard-reset-immediate", bmc-reset-immediate",
                 "bmc-reset-default", "cmos-reset-immediate",
                 "diagnostic-interrupt"
-        '''
+        """
         if force:
             command_string = '''<configConfMo cookie="%s" dn="sys/rack-unit-1" inHierarchical="false">\
             <inConfig>\
@@ -134,9 +134,9 @@ class UcsServer():
         pass
 
     def get_chassis_info(self):
-        '''
+        """
         Get the top-level chassis info and record useful info like serial number, model, memory, etc, in server.inventory['chassis'] sub-dictionary
-        '''
+        """
         chassis_dict = {}
         with RemapExceptions():
             command_string = '<configResolveClass cookie="%s" inHierarchical="false" classId="computeRackUnit"/>' % self.session_cookie
@@ -178,10 +178,10 @@ class UcsServer():
             return self
 
     def get_drive_inventory(self):
-        '''
+        """
         Retrieve both physical and virtual drive inventories.
         Populate <instance>.inventory['drives'] with the resulting dictionary
-        '''
+        """
         drive_dict = {'storageLocalDisk':[], 'storageVirtualDrive':[]}
         command_string = ['<configResolveClass cookie="%s" inHierarchical="false" classId="storageLocalDisk"/>' % self.session_cookie,
                           '<configResolveClass cookie="%s" inHierarchical="false" classId="storageVirtualDrive"/>' % self.session_cookie]
@@ -204,10 +204,34 @@ class UcsServer():
         self.inventory['drive_usage'] = local_drive_usage_list
         return self
 
+    def configure_pd_as_unconfigured_good_from_jbod(self, controller_path, phys_drive_id, force=False):
+        """
+        <configConfMo cookie='$REPLACE_ACTUAL_COOKIE_VALUE' inHierarchical='true' dn='sys/rack-unit-1/board/storage-SAS-SLOT-4/pd-8'>
+            <inConfig>
+                <storageLocalDisk dn='sys/rack-unit-1/board/storage-SAS-SLOT-4/pd-8' id='8'
+                adminAction='make-unconfigured-good'/>
+            </inConfig>
+        </configConfMo>
+        """
+        if force:
+            command_string = '''<configConfMo cookie="%s" inHierarchical="true" dn="%s/pd-%s">
+            <inConfig>
+                <storageLocalDisk dn="%s/pd-%s" id='%s'
+                adminAction='make-unconfigured-good'/>
+            </inConfig>
+        </configConfMo>''' % (self.session_cookie, controller_path, phys_drive_id, controller_path, phys_drive_id, phys_drive_id)
+            print 'will execute %s' % command_string
+            # Just printing out for now. Don't actually execute the command
+            #  response_element = post_request(self.ipaddress, command_string, timeout=CREATE_DRIVE_TIMEOUT)
+        else:
+            print 'configure_pd_as_unconfigured_good_from_jbod() must be called with "force=True" to force to JBOD'
+            return False
+
+
     def print_drive_inventory(self):
-        '''
+        """
         Print out the drive inventory dict in a user-friendly format.
-        '''
+        """
         if any(self.inventory['drives']):
             print 'Virtual Drives:'
             for vd in self.inventory['drives']['storageVirtualDrive']:
@@ -220,7 +244,7 @@ class UcsServer():
 
     @timeit
     def create_virtual_drive(self, controller_path, virtual_drive_name, raid_level, raid_size, drive_group, write_policy='Write Back Good BBU', force=False, debug=False):
-        '''
+        """
         <configConfMo cookie='$REPLACE_ACTUAL_COOKIE_VALUE' inHierarchical='false' dn='sys/rack-unit-1/board/storage-SAS-SLOT-2/virtual-drive-create'>
            <inConfig>
               <storageVirtualDriveCreatorUsingUnusedPhysicalDrive dn='sys/rack-unit-1/board/storage-SAS-SLOT-2/virtual-drive-create'
@@ -232,7 +256,7 @@ class UcsServer():
                adminState='trigger'/>
            </inConfig>
         </configConfMo>
-        '''
+        """
         if force:
             command_string = '''<configConfMo cookie="%s" inHierarchical="false" dn="%s/virtual-drive-create">
                <inConfig>
@@ -254,13 +278,13 @@ class UcsServer():
             return False
 
     def get_interface_inventory(self):
-        '''
+        """
         Get network interface inventory with three calls:
             query adaptorUnit classId to find all adaptors
             query adaptorExtEthIf classId to find all physical network interfaces
             query adaptorHostEthIf classId to find all vNIC interfaces
         Combine all of the results in a hierarchical dict structure and return it in self.inventory['interfaces']
-        '''
+        """
 
         adaptorUnit_list = []
         adaptorHostEthIf_list = []
@@ -320,12 +344,12 @@ class UcsServer():
         self.inventory['adaptor'] = out_list
 
     def get_pci_inventory(self):
-        '''
+        """
         Query the pciEquipSlot class to get all PCI cards
         pciEquipSlot : {'dn': 'sys/rack-unit-1/equipped-slot-2', 'smbiosId': '2', 'controllerReported': '2', 'vendor': '0x1137', 'model': 'UCS VIC 1225 10Gbps 2 port CNA SFP+', 'id': '2'}
         pciEquipSlot : {'dn': 'sys/rack-unit-1/equipped-slot-4', 'smbiosId': '4', 'controllerReported': '4', 'vendor': '0x1000', 'model': 'LSI 9271-8i MegaRAID SAS HBA', 'id': '4'}
         pciEquipSlot : {'dn': 'sys/rack-unit-1/equipped-slot-5', 'smbiosId': '5', 'controllerReported': '5', 'vendor': '0x1137', 'model': 'UCS VIC 1225 10Gbps 2 port CNA SFP+', 'id': '5'}
-        '''
+        """
 
         pciEquipSlot_list = []
         with RemapExceptions():
@@ -337,7 +361,7 @@ class UcsServer():
             self.inventory['pci'] = pciEquipSlot_list
 
     def get_psu_inventory(self):
-        '''
+        """
         Query the equipmentPsu class to get the power supply inventory and status on the server
         Populate <instance>.inventory['ps'] with the resulting dictionary
 
@@ -348,7 +372,7 @@ class UcsServer():
                 <equipmentPsu id="2" model="" operability="unknown" power="off" presence="missing" serial="" thermal="unknown" vendor="" voltage="unknown" dn="sys/rack-unit-1/psu-2" ></equipmentPsu>
             </outConfigs>
         </configResolveClass>
-        '''
+        """
 
         psu_list = []
         with RemapExceptions():
@@ -360,10 +384,10 @@ class UcsServer():
             self.inventory['psu'] = psu_list
 
     def get_bios_settings(self):
-        '''
+        """
         Query the firmwareRunning class to get all FW versions on the server
         Populate <instance>.inventory['bios'] with the resulting dictionary
-        '''
+        """
         with RemapExceptions():
             bios_dict = {}
             command_string = '<configResolveClass cookie="%s" inHierarchical="true" classId="biosSettings"/>' % self.session_cookie
@@ -377,9 +401,9 @@ class UcsServer():
             self.inventory['bios'] = bios_dict
 
     def set_bios_custom(self):
-        '''
+        """
         Set the BIOS settings to Cisco's recommendations for virtualization
-        '''
+        """
         with RemapExceptions():
             command_string = configConfMo_prepend_string % self.session_cookie
             for item in config.CUSTOM_BIOS_SETTINGS:
@@ -388,11 +412,11 @@ class UcsServer():
             response_element = post_request(self.ipaddress, command_string)
 
     def set_sol_adminstate(self, state='enable', speed='115200', comport='com0'):
-        '''
+        """
         Change the admin state of the Serial over LAN feature. Valid states are 'enable' and 'disable'.
         Valid speeds are '115200', '57600', '38400', '19200', '9600'
         Valid COM ports are 'com0' and 'com1'
-        '''
+        """
         command_string = '<configConfMo cookie="%s" inHierarchical="false" dn="sys/rack-unit-1/sol-if">\
                             <inConfig><solIf adminState="%s" speed="%s" comport="%s"></solIf>\
                             </inConfig></configConfMo>' % (self.session_cookie, state, speed, comport)
@@ -409,11 +433,11 @@ class UcsServer():
                     if user.attrib['name']]
 
     def set_password(self, userid, password):
-        '''<configConfMo cookie="<cookie>" inHierarchical="false" dn="sys/user-ext/user-3">
+        """<configConfMo cookie="<cookie>" inHierarchical="false" dn="sys/user-ext/user-3">
                 <inConfig>
                     <aaaUser id="3" pwd="<new_password>" />
                 </inConfig>
-            </configConfMo>'''
+            </configConfMo>"""
         if not self.inventory['users']:
             self.get_users()
         # Make sure we have the requested user
@@ -433,10 +457,10 @@ class UcsServer():
 
     # @timeit
     def get_fw_versions(self):
-        '''
+        """
         Query the firmwareRunning class to get all FW versions on the server
         Populate <instance>.inventory['fw'] with the resulting sorted list
-        '''
+        """
         fw_dict = {}
         command_string = '<configResolveClass cookie="%s" inHierarchical="false" classId="firmwareRunning"/>' % self.session_cookie
         with RemapExceptions():
@@ -472,9 +496,9 @@ def post_request(server, command_string, timeout=REQUEST_TIMEOUT):
 
 
 if __name__ == "__main__":
-    IPADDR = '192.168.200.101'
+    IPADDR = '192.168.200.100'
     USERNAME = 'admin'
-    PASSWORD = 'password'
+    PASSWORD = 'MPan4scd'
 
     import sys
 
@@ -484,7 +508,7 @@ if __name__ == "__main__":
         with UcsServer(IPADDR, USERNAME, PASSWORD) as server:
             server.set_sol_adminstate('enable')
 
-    if 1:
+    if 0:
         with UcsServer(IPADDR, USERNAME, PASSWORD) as server:
             server.get_fw_versions()
             out_string = server.ipaddress + ','
