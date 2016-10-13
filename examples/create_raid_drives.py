@@ -2,6 +2,7 @@
 
 from pycimc import *
 from collections import namedtuple
+import config
 
 __author__ = 'Rob Horner (robert@horners.org)'
 
@@ -15,12 +16,10 @@ VirtualDrive = namedtuple('VirtualDrive',['controller_path', 'virtual_drive_name
 remove_vds = False
 
 IP_ADDRESS = '192.168.200.100'
-USERNAME = 'admin'
-PASSWORD = 'password'
 
 print '\n=== Server '+IP_ADDRESS+' ==='
 
-with UcsServer(IP_ADDRESS, USERNAME, PASSWORD) as server:
+with UcsServer(IP_ADDRESS, config.USERNAME, config.PASSWORD) as server:
 
     print '=== Get Drive Inventory ==='
     if server.get_drive_inventory():
