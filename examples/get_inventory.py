@@ -4,9 +4,9 @@ from pycimc import *
 import config
 from pprint import pprint
 
-ADDRESS = '69.134.205.44'
+ADDRESS = '192.168.200.101'
 USERNAME = 'admin'
-PASSWORD = 'PalmWine4TWC'
+PASSWORD = 'password'
 
 
 with UcsServer(ADDRESS, USERNAME, PASSWORD) as server:

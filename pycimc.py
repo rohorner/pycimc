@@ -11,7 +11,6 @@ import requests
 import logging
 from exception_mapper import *
 
-
 LOGIN_TIMEOUT = 5.0
 REQUEST_TIMEOUT = 10.0
 CREATE_DRIVE_TIMEOUT = 60.0
@@ -29,7 +28,6 @@ def timeit(method):
               (method.__name__, args, kw, tend-tstart)
         return result
     return timed
-
 
 class InventoryDict(defaultdict):
 
@@ -53,7 +51,6 @@ class UcsServer():
         self.total_memory = 0
         self.inventory = InventoryDict()
 
-    # Context Manager
     def __enter__(self):
         if self.login():
             return self
@@ -251,8 +248,6 @@ class UcsServer():
             print 'create_virtual_drive() must be called with "force=True" to create the drive'
             return False
 
-
-    #@timeit
     def get_interface_inventory(self):
         '''
         Get network interface inventory with three calls:
@@ -358,7 +353,6 @@ class UcsServer():
             for config in out_configs.getchildren():
                 psu_list.append(config.attrib)
             self.inventory['psu'] = psu_list
-
 
     def get_bios_settings(self):
         '''
@@ -485,17 +479,17 @@ if __name__ == "__main__":
         with UcsServer(IPADDR, USERNAME, PASSWORD) as server:
             server.set_sol_adminstate('enable')
 
-    if 0:
+    if 1:
         with UcsServer(IPADDR, USERNAME, PASSWORD) as server:
             server.get_fw_versions()
             out_string = server.ipaddress + ','
             for key,value in server.inventory['fw'].items():
-                path_list = key.split('/')[2:]
-                path = '/'.join(path_list)
+                # lop off the first two elements in the path since they're the same for all responses
+                path = '/'.join(key.split('/')[2:])
                 out_string += path + ',' + value + ','
             print out_string
 
-    if 1:
+    if 0:
         with UcsServer(IPADDR,USERNAME,PASSWORD) as server:
             print '== chassis info =='
             server.get_chassis_info()

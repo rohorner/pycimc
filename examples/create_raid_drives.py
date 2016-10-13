@@ -14,7 +14,7 @@ VirtualDrive = namedtuple('VirtualDrive',['controller_path', 'virtual_drive_name
 
 remove_vds = False
 
-IP_ADDRESS = '192.168.200.101'
+IP_ADDRESS = '192.168.200.100'
 USERNAME = 'admin'
 PASSWORD = 'password'
 

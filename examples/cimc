@@ -142,7 +142,7 @@ with UcsServer(args.ip_address, escape(args.username), escape(args.password)) as
 '''
 Interesting things to add 'set' methods for later:
     set_power_state(self, power_state, force=False):
-    print_drive_inventory(self)
+    create_virtual_drive(self, [args TBD])
     set_bios_custom(self)
     set_sol_adminstate(self, state='enable', speed='115200', comport='com0')
 '''
