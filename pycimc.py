@@ -166,7 +166,12 @@ class UcsServer():
             out_configs = response_element.find('outConfigs')
             for i in out_configs.getchildren():
                 print i
-                bootorder_dict[i.attrib['order']] = i.attrib['type']
+                try:
+                    bootorder_dict[i.attrib['order']] = i.attrib['type']
+                except:
+                    self.inventory['boot_order'] = None
+                    return self
+
             # represent the boot order as an ordered list from the returned dict based on the 'order' key
             #   {'1': 'virtual-media', '3': 'storage', '2': 'lan'} becomes ['virtual-media', 'lan', 'storage']
             self.inventory['boot_order'] = [bootorder_dict[key] for key in sorted(bootorder_dict)]
